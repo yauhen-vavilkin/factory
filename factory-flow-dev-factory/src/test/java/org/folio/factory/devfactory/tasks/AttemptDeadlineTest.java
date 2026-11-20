@@ -46,6 +46,15 @@ class AttemptDeadlineTest {
     }
 
     @Test
+    void anOperationCutByTheDeadlineEndsAfterItSoTheNextCheckFindsItExpired() {
+        var deadline = new AttemptDeadline(Instant.parse("2026-10-23T10:00:00Z"));
+
+        assertThat(deadline.capSeconds(at("2026-10-23T09:59:14.300Z"), 1800)).isEqualTo(46);
+        assertThat(deadline.capSeconds(at("2026-10-23T09:59:59.700Z"), 1800)).isEqualTo(1);
+        assertThat(deadline.capSeconds(at("2026-10-23T10:00:00.300Z"), 1800)).isZero();
+    }
+
+    @Test
     void perOperationLimitsStayMeaningful() {
         var deadline = new AttemptDeadline(Instant.parse("2026-10-23T10:00:00Z"));
 

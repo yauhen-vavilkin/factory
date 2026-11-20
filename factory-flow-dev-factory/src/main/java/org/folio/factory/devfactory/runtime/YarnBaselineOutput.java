@@ -9,6 +9,8 @@ import java.util.regex.Pattern;
 public final class YarnBaselineOutput implements BuildOutput {
     static final int EVENT_LIMIT = 120;
     private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
+    /** The start of the line that yarn prints last when {@code yarn install} fails. */
+    private static final String FAILED_INSTALL_LINE = "info Visit https://yarnpkg.com/en/docs/cli/install";
     private static final Pattern STEP = Pattern.compile("^\\[\\d+/\\d+] .*");
     private static final Pattern NETWORK_FAILURE = Pattern.compile(
             "etimedout|esockettimedout|econnreset|econnrefused|eai_again|enotfound|socket hang up"
@@ -63,12 +65,13 @@ public final class YarnBaselineOutput implements BuildOutput {
     }
 
     /**
-     * The last yarn error of a command that stopped in its dependency install. An install that finished prints
-     * "Done in", so an error after it came from the command that ran next.
+     * The last yarn error of a command that stopped in its dependency install. Yarn ends a failed command with a
+     * line that names it, and that line is still in an output of which only the end is kept. A failed test command
+     * ends with the line of {@code run}, so its errors are not taken for the install's.
      */
     public static Optional<String> installError(String output) {
-        if (output == null || output.lines().anyMatch(raw -> ANSI.matcher(raw).replaceAll("").strip()
-                .startsWith("Done in "))) return Optional.empty();
+        if (output == null || output.lines().noneMatch(raw -> ANSI.matcher(raw).replaceAll("").strip()
+                .startsWith(FAILED_INSTALL_LINE))) return Optional.empty();
         return lastError(output);
     }
 

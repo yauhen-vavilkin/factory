@@ -1852,7 +1852,7 @@ class UiRenderSmokeTest {
                 .containsPattern("<option value=\"codemie-sonnet-5.5\"[^>]*selected=\"selected\"")
                 .doesNotContainPattern("<option value=\"codemie-opus-5.5\"[^>]*selected=\"selected\"")
                 .containsPattern(radio("effort", "high") + "(?=[^>]*checked=\"checked\")");
-        assertThat(body).doesNotContain(PI_KEY);
+        assertThat(body).doesNotContain(PI_KEY, PROXY_TOKEN);
     }
 
     @Test

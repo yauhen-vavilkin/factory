@@ -125,18 +125,19 @@ class YarnBaselineOutputTest {
     }
 
     @Test
-    void anInstallErrorIsTheLastYarnErrorOfAnInstallThatNeverFinished() {
+    void anInstallErrorIsTheLastYarnErrorOfACommandThatYarnEndsAsAFailedInstall() {
         String failedInstall = "yarn install v1.22.22\n[1/4] Resolving packages...\n"
                 + "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.\n"
                 + "info Visit https://yarnpkg.com/en/docs/cli/install for documentation about this command.";
-        // A finished install says "Done in", so an error after it comes from the test command.
-        String failedTestCommand = "yarn install v1.22.22\nDone in 14.20s.\nyarn run v1.22.22\n"
-                + "error Command \"test\" not found.";
+        // Only the end of a long output is kept, so the "Done in" of the install can be gone; the test command
+        // that failed ends with the line of "run", and an error line that a test printed is not the install's.
+        String failedTestCommand = "error loading the fixture\nyarn run v1.22.22\nerror Command failed with exit"
+                + " code 1.\ninfo Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.";
 
         assertThat(YarnBaselineOutput.installError(failedInstall))
                 .hasValue("Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.");
         assertThat(YarnBaselineOutput.installError(failedTestCommand)).isEmpty();
-        assertThat(YarnBaselineOutput.installError("error Command failed with exit code 1.")).isEmpty();
+        assertThat(YarnBaselineOutput.installError("error Command \"test\" not found.")).isEmpty();
         assertThat(YarnBaselineOutput.installError(null)).isEmpty();
     }
 }

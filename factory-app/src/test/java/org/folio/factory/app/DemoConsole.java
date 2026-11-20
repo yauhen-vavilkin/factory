@@ -225,7 +225,7 @@ class DemoConsole {
         var receipt = "{\"result\":\"FAIL\",\"toolchain\":\"YARN\",\"exitCode\":1,\"testCount\":null,"
                 + "\"failureKind\":\"INSUFFICIENT_EVIDENCE\",\"output\":\"yarn install v1.22.22\\n[1/4] Resolving"
                 + " packages...\\nerror Your lockfile needs to be updated, but yarn was run with"
-                + " `--frozen-lockfile`.\"}";
+                + " `--frozen-lockfile`.\\ninfo Visit https://yarnpkg.com/en/docs/cli/install for documentation about this command.\"}";
         var result = "{\"state\":\"" + StopReasons.CHECKS_FAILED + "\",\"failureKind\":\"INSUFFICIENT_EVIDENCE\","
                 + "\"exitCode\":1}";
         artifacts.put(execution.getId(), VerifyWorker.RECEIPT, receipt, "application/json", "demo");

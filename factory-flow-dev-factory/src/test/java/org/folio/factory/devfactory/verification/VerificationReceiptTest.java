@@ -36,6 +36,7 @@ class VerificationReceiptTest {
     void checksOfAYarnPlanWhoseInstallFailedSayYarnsErrorAndMavenChecksStayAsTheyWere() {
         var output = "yarn install v1.22.22\n[1/4] Resolving packages...\n"
                 + "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.\n"
+                + "info Visit https://yarnpkg.com/en/docs/cli/install for documentation about this command.\n"
                 + "Trusted verification produced no fresh executed Jest tests";
 
         assertThat(notRun(Toolchain.YARN, output).failureReason()).isEqualTo("Checks could not run: the dependency"

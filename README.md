@@ -478,9 +478,9 @@ CodeMie Sonnet, Opus and Haiku 5.5, Sonnet straight from the Anthropic API
 - `FACTORY_DEV_FACTORY_DEFAULT_MODEL` picks the model the forms preselect and that runs
   without a choice use (the manual API trigger, runs started before the models file).
   Empty means the first model in the file that Claude Code can run.
-- To use your own copy, set `FACTORY_DEV_FACTORY_MODELS_FILE=./config/my-models.yaml`; it
-  is mounted read-only like the repository catalog. An invalid file stops Factory at
-  startup with a message that names the model and the field.
+- To use your own copy, set `FACTORY_DEV_FACTORY_MODELS_FILE=./local/my-models.yaml` (git
+  ignores the `local/` folder); it is mounted read-only like the repository catalog. An
+  invalid file stops Factory at startup with a message that names the model and the field.
 
 The run stores the chosen model id, the effort and the instructions (no credentials).
 The run then uses the model it names; if that model was removed or lost its secret, the

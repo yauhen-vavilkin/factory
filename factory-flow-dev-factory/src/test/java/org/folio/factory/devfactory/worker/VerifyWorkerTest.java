@@ -184,7 +184,8 @@ class VerifyWorkerTest {
         var timeout = ArgumentCaptor.forClass(Integer.class);
         verify(verifier).verify(eq(executionId()), eq("verify"), any(Candidate.class), eq(SOURCE),
                 timeout.capture(), any());
-        assertThat(timeout.getValue()).isPositive().isLessThan(45);
+        // A part of a second counts as a whole one, so the limit is at most the 45 seconds that are left.
+        assertThat(timeout.getValue()).isPositive().isLessThanOrEqualTo(45);
     }
 
     @Test

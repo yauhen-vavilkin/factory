@@ -27,12 +27,16 @@ public record AttemptDeadline(Instant expiresAt) {
         return remaining.isZero() || remaining.isNegative();
     }
 
-    /** min(existing per-operation limit, remaining); zero once expired, never negative. */
+    /**
+     * min(existing per-operation limit, remaining); zero once expired, never negative. A part of a second counts
+     * as a whole one, so an operation that this limit cuts ends at the deadline or after it, and the check that
+     * follows finds the deadline expired.
+     */
     public int capSeconds(Clock clock, int perOperationSeconds) {
         if (perOperationSeconds <= 0) {
             throw new IllegalArgumentException("Per-operation timeout must be positive");
         }
-        long remainingSeconds = Math.max(0, remaining(clock).toSeconds());
+        long remainingSeconds = Math.max(0, remaining(clock).plusNanos(999_999_999).toSeconds());
         return Math.toIntExact(Math.min(perOperationSeconds, remainingSeconds));
     }
 }

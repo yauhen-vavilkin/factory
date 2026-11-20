@@ -39,7 +39,9 @@ class StopReasonsTest {
         var result = read("{\"state\":\"VERIFICATION_FAILED\",\"exitCode\":1,"
                 + "\"failureKind\":\"INSUFFICIENT_EVIDENCE\",\"testCount\":null}");
         var output = "yarn install v1.22.22\\n[1/4] Resolving packages...\\nerror Your lockfile needs to be"
-                + " updated, but yarn was run with `--frozen-lockfile`.\\nTrusted verification produced no fresh"
+                + " updated, but yarn was run with `--frozen-lockfile`.\\ninfo Visit"
+                + " https://yarnpkg.com/en/docs/cli/install for documentation about this command.\\nTrusted"
+                + " verification produced no fresh"
                 + " executed Jest tests";
 
         assertThat(StopReasons.ofResult(result, receipt("YARN", output)))

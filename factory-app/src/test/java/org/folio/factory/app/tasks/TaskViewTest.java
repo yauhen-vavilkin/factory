@@ -235,7 +235,8 @@ class TaskViewTest {
         stateManager.transition(executionId, ExecutionStatus.COMPLETED, null);
         writeArtifact(executionId, VerifyWorker.RECEIPT, "{\"result\":\"FAIL\",\"toolchain\":\"YARN\",\"exitCode\":1,"
                 + "\"testCount\":null,\"failureKind\":\"INSUFFICIENT_EVIDENCE\",\"output\":\"yarn install v1.22.22\\n"
-                + "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.\"}");
+                + "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.\\n"
+                + "info Visit https://yarnpkg.com/en/docs/cli/install for documentation about this command.\"}");
         writeArtifact(executionId, VerifyWorker.RESULT, "{\"state\":\"VERIFICATION_FAILED\",\"exitCode\":1,"
                 + "\"testCount\":null,\"failureKind\":\"INSUFFICIENT_EVIDENCE\"}");
         outcomes.refresh(attempt.getId());
