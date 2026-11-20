@@ -77,7 +77,7 @@ class ClaudeCodeDockerTest {
             mock.tool = "Read";
             mock.toolInput = Map.of("file_path", "/tmp/factory-attachments/img-1.png");
             var withImages = ClaudeCodeCodingRuntimeTest.runtime(IMAGE, mock.url(), mock.model, "api-key", 4,
-                    "zai-secret", true);
+                    "example-secret", true);
             var outcome = new ImageStagingRuntime(withImages, jira, new DevAttachmentProperties())
                     .code(workload, request, 90, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
@@ -381,7 +381,7 @@ class ClaudeCodeDockerTest {
     }
 
     private static ClaudeCodeCodingRuntime runtime(MessagesEndpoint mock, String authentication) {
-        return ClaudeCodeCodingRuntimeTest.runtime(IMAGE, mock.url(), mock.model, authentication, 4, "zai-secret");
+        return ClaudeCodeCodingRuntimeTest.runtime(IMAGE, mock.url(), mock.model, authentication, 4, "example-secret");
     }
 
     private static final class MessagesEndpoint implements AutoCloseable {

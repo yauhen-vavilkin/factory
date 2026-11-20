@@ -466,8 +466,7 @@ its own price. An entry has `id` (the name in the form), `api`, `base-url`,
 that holds the secret; never the secret itself), `model`, `efforts`, `default-effort`,
 optional `max-output-tokens` (16384) and an optional `price` block. The file ships the
 CodeMie Sonnet, Opus and Haiku 5.5, Sonnet straight from the Anthropic API
-(`FACTORY_ANTHROPIC_API_KEY`), Z.ai `glm-5.3` and `glm-5.3-flash` (`FACTORY_ZAI_API_KEY`)
-and the prices of two Pi models.
+(`FACTORY_ANTHROPIC_API_KEY`) and the prices of two Pi models.
 
 - The run forms offer the models that Claude Code can run (`api: anthropic-messages`,
   efforts from `low`, `medium`, `high`, `xhigh`, `max`) and whose secret is set. With one
@@ -475,7 +474,7 @@ and the prices of two Pi models.
   ones that can run, and for the others the fix of each failing check.
 - Compose passes only the variables it lists to Factory, so a model with a new
   `secret-env` variable also needs that variable in the `environment` of the `factory`
-  service in `docker-compose.yml`, next to `FACTORY_ZAI_API_KEY`.
+  service in `docker-compose.yml`, next to `FACTORY_ANTHROPIC_API_KEY`.
 - `FACTORY_DEV_FACTORY_DEFAULT_MODEL` picks the model the forms preselect and that runs
   without a choice use (the manual API trigger, runs started before the models file).
   Empty means the first model in the file that Claude Code can run.
@@ -556,8 +555,8 @@ model; Factory does not start the proxy) or a key for another model in
 cp .env.tasks.example .env
 # Set FACTORY_TASKS_ASSIGNEE (your name as Jira shows it) and FACTORY_CONNECTORS_GITHUB_TOKEN.
 # Without a CodeMie proxy on port 4001, pick another default model, for example:
-#   FACTORY_ZAI_API_KEY=<your Z.ai key>
-#   FACTORY_DEV_FACTORY_DEFAULT_MODEL=glm-5.3-flash
+#   FACTORY_ANTHROPIC_API_KEY=<your Anthropic API key>
+#   FACTORY_DEV_FACTORY_DEFAULT_MODEL=anthropic-sonnet-5.5
 docker compose up -d --build
 ```
 
@@ -654,7 +653,6 @@ blocks of the models file. `FACTORY_CLAUDE_CODE_IMAGE` and `FACTORY_CLAUDE_CODE_
 | `FACTORY_DEV_FACTORY_MODELS_FILE` | Compose host path of the models file (default `./config/developer-models.yaml`); mounted read-only |
 | `FACTORY_CODEMIE_PROXY_TOKEN` | Token of the local CodeMie proxy for the `codemie-*` models (default `codemie-proxy`, also without Compose) |
 | `FACTORY_ANTHROPIC_API_KEY` | Anthropic API key for the `anthropic-sonnet-5.5` model; empty leaves it not offered |
-| `FACTORY_ZAI_API_KEY` | Z.ai key for the `glm-5.3` and `glm-5.3-flash` models; empty leaves them not offered |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |
 | `FACTORY_HTTP_CONNECT_TIMEOUT` / `_READ_TIMEOUT` | Connector HTTP timeouts (Duration; defaults `5s` / `30s`) |

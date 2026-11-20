@@ -133,8 +133,8 @@ final class DeveloperExecutionView {
     }
 
     /**
-     * "glm-5.3 · max": the model as chosen in the run form and its effort. Runs started before 2026-11-03 named a
-     * run profile instead, and Pi names only the model ID.
+     * "codemie-sonnet-5.5 · high": the model as chosen in the run form and its effort. Runs started before 2026-11-03
+     * named a run profile instead, and Pi names only the model ID.
      */
     private static String settings(JsonNode config) {
         var model = first(config.path("modelId"), config.path("profileLabel"), config.path("profile"),

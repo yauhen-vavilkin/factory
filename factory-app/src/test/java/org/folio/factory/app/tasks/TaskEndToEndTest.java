@@ -347,8 +347,9 @@ class TaskEndToEndTest {
         UUID heldAttemptId = attempts.findByExecutionId(heldExecutionId).orElseThrow().getId();
         Task failedTask = tasks.findById(taskId("8103")).orElseThrow();
 
-        String runSettings = "{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\","
-                + "\"model\":\"glm-5.3\",\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\","
+        String runSettings = "{\"profileId\":\"codemie-haiku-5.5\",\"profileLabel\":\"Haiku 5.5 (CodeMie)\","
+                + "\"model\":\"claude-haiku-5-5\",\"endpointOrigin\":\"http://host.docker.internal:4001\","
+                + "\"effort\":\"low\","
                 + "\"maxTurns\":33,\"instructions\":\"Use the wiki REST URL.\"}";
         var firstClick = admissions.retry(new TaskCommands.Retry("e2e-retry-103", failedTask.getId(),
                 failedTask.getVersion(), TaskAdmissionChecks.inputFingerprint(failedTask),
@@ -385,8 +386,9 @@ class TaskEndToEndTest {
         assertThat(retryOutcome.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.PR_READY);
         // The settings chosen at Retry reach the coding request; the first attempt had none.
         assertThat(codingRequests.get("MODFOO-103").runSettings())
-                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", "Use the wiki REST URL."));
-        assertThat(attempts.findById(firstClick.attemptId()).orElseThrow().getRunSettings()).contains("glm-5.3");
+                .isEqualTo(new CodingRequest.RunSettings("codemie-haiku-5.5", "low", "Use the wiki REST URL."));
+        assertThat(attempts.findById(firstClick.attemptId()).orElseThrow().getRunSettings())
+                .contains("codemie-haiku-5.5");
         assertThat(attempts.findById(firstClick.attemptId()).orElseThrow().getPublicationIdentity()).isEqualTo(FOO_PR);
         List<TaskAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8103"));
         assertThat(history).hasSize(2);

@@ -59,7 +59,7 @@ class PullRequestRendererTest {
 
     @Test
     void anIntroLineBeforeTheCriteriaListIsNotACriterion() {
-        // A real glm-5.3-flash report opened the section this way, and the PR became a draft for it.
+        // A real report of a non-Anthropic model opened the section this way, and the PR became a draft for it.
         String intro = "The Jira story lists scope items rather than formal acceptance criteria; assessed per item:\n";
 
         assertThat(PullRequestRenderer.draftReasons(outcome(report(intro + "- A — met: done\n- B — met", "None", "None"))))
@@ -257,7 +257,7 @@ class PullRequestRendererTest {
 
     @Test
     void aLongReportLineReachesThePrWholeAndARunawayLineIsCutBetweenCharacters() {
-        // A real GLM report had a 520-character first bullet, and the PR showed it cut mid-word.
+        // A real report of a non-Anthropic model had a 520-character first bullet, and the PR showed it cut mid-word.
         String bullet = "Added DeployConfig.json with module defaults and every environment variable. ".repeat(12)
                 + "Ends here.";
 

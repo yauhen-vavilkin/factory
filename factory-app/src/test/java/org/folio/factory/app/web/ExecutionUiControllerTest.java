@@ -101,7 +101,7 @@ class ExecutionUiControllerTest {
 
     @BeforeEach
     void setUp() {
-        var estimator = DeveloperCostEstimatorTest.estimatorFor("glm-5.3-flash", "https://example.test/pricing",
+        var estimator = DeveloperCostEstimatorTest.estimatorFor("example-small", "https://example.test/pricing",
                 "0.15", "0.03", "0.50");
         taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
         var limits = mock(RunLimits.class);
@@ -320,7 +320,7 @@ class ExecutionUiControllerTest {
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
         when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
-                        "{\"activity\":\"pi_starting\",\"provider\":\"another-proxy\",\"model\":\"glm-5.3-flash\"}"),
+                        "{\"activity\":\"pi_starting\",\"provider\":\"another-proxy\",\"model\":\"example-small\"}"),
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
                         "{\"activity\":\"pi_usage\",\"inputTokens\":71200,\"cacheReadTokens\":2500000,"
                                 + "\"cacheWriteTokens\":0,\"outputTokens\":35100,\"costUsd\":0}")));
@@ -341,8 +341,8 @@ class ExecutionUiControllerTest {
     @Test
     void priceSourceLinksOnlyHttpAddresses() {
         // Any other name stays text.
-        assertThat(DeveloperRunView.PriceSource.of("docs.z.ai (2026-09-19)"))
-                .isEqualTo(new DeveloperRunView.PriceSource(null, "docs.z.ai (2026-09-19)"));
+        assertThat(DeveloperRunView.PriceSource.of("docs.example.com (2026-09-19)"))
+                .isEqualTo(new DeveloperRunView.PriceSource(null, "docs.example.com (2026-09-19)"));
         assertThat(DeveloperRunView.PriceSource.of("javascript:alert(1)").url()).isNull();
     }
 
@@ -408,7 +408,7 @@ class ExecutionUiControllerTest {
                 new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
                         "{\"inputTokens\":100000,\"cacheReadTokens\":200000,\"cacheWriteTokens\":0,"
                                 + "\"outputTokens\":10000,\"provider\":\"openai-compatible\","
-                                + "\"model\":\"glm-5.3-flash\"}")));
+                                + "\"model\":\"example-small\"}")));
 
         var run = run(mvc.perform(get("/executions/{id}", EXECUTION_ID)).andExpect(status().isOk()).andReturn());
 
@@ -429,7 +429,8 @@ class ExecutionUiControllerTest {
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
         when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
-                        "{\"activity\":\"coding_starting\",\"provider\":\"openai-compatible\",\"model\":\"glm-5.3-flash\"}"),
+                        "{\"activity\":\"coding_starting\",\"provider\":\"openai-compatible\","
+                                + "\"model\":\"example-small\"}"),
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
                         "{\"activity\":\"coding_usage\",\"inputTokens\":1000,\"cacheReadTokens\":0,"
                                 + "\"cacheWriteTokens\":0,\"outputTokens\":100,\"usageIncomplete\":true}")));
@@ -487,7 +488,7 @@ class ExecutionUiControllerTest {
                 new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
                         "{\"inputTokens\":30,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"outputTokens\":9,"
                                 + "\"promptTokens\":30,\"completionTokens\":9,\"provider\":\"openai-compatible\","
-                                + "\"model\":\"glm-5.3-flash\"}")));
+                                + "\"model\":\"example-small\"}")));
 
         var usage = run(mvc.perform(get("/executions/{id}", EXECUTION_ID)).andExpect(status().isOk()).andReturn())
                 .usage();
@@ -713,8 +714,8 @@ class ExecutionUiControllerTest {
 
     private static RunContext runContext(String chip, boolean inFlight) {
         return new RunContext(UUID.fromString("00000000-0000-0000-0000-0000000000aa"), "TASK-1", "Fix route", null,
-                2, "glm-5.3 · max", new AttemptStatus(chip, "chip chip-info", null, chip), null, null, null, null,
-                null, null, inFlight, null, null);
+                2, "example-large · max", new AttemptStatus(chip, "chip chip-info", null, chip), null, null, null,
+                null, null, null, inFlight, null, null);
     }
 
     private static PipelineExecution execution(ExecutionStatus status, int stepIndex, String retryCounts) {

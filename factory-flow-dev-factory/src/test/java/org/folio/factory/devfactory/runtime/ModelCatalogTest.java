@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ModelCatalogTest {
 
     private static final Map<String, String> SECRETS = Map.of("PROXY_TOKEN", "proxy-secret",
-            "ZAI_KEY", "zai-secret", "PI_KEY", "pi-secret");
+            "EXAMPLE_KEY", "example-secret", "PI_KEY", "pi-secret");
 
     /**
      * Shaped like config/developer-models.yaml, but owned by this test so that a new model or price in the
@@ -36,10 +36,11 @@ class ModelCatalogTest {
                     price("2.00", "10.00")),
             anthropic("proxy-opus", "bearer-token", "PROXY_TOKEN", "claude-opus", "medium", price("4.00", "20.00")),
             anthropic("direct-sonnet", "api-key", "ANTHROPIC_KEY", "claude-sonnet", "high", price("2.00", "10.00")),
-            new ModelEntry("glm", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token", "ZAI_KEY",
-                    "glm", List.of("low", "high", "max"), "max", null, price("1.40", "4.40"), null),
-            new ModelEntry("glm-flash", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
-                    "ZAI_KEY", "glm-flash", List.of("low", "high", "max"), "max", null, null, null),
+            new ModelEntry("example-large", "anthropic-messages", "https://api.example.com/anthropic", "bearer-token",
+                    "EXAMPLE_KEY", "example-large", List.of("low", "high", "max"), "max", null, price("1.40", "4.40"),
+                    null),
+            new ModelEntry("example-small", "anthropic-messages", "https://api.example.com/anthropic", "bearer-token",
+                    "EXAMPLE_KEY", "example-small", List.of("low", "high", "max"), "max", null, null, null),
             new ModelEntry("gemini", "openai-completions", "http://host.docker.internal:4001/v1", "api-key", "PI_KEY",
                     "gemini-flash", List.of("low", "medium", "high"), "medium", null, price("0.75", "3.75"), null));
 
@@ -98,28 +99,30 @@ class ModelCatalogTest {
         var catalog = new ModelCatalog(FIXTURE, "claude-code", SECRETS::get);
 
         assertThat(catalog.all()).extracting(Model::id).containsExactly("proxy-sonnet", "proxy-opus",
-                "direct-sonnet", "glm", "glm-flash", "gemini");
-        assertThat(catalog.ready()).extracting(Model::id).containsExactly("proxy-sonnet", "proxy-opus", "glm",
-                "glm-flash");
+                "direct-sonnet", "example-large", "example-small", "gemini");
+        assertThat(catalog.ready()).extracting(Model::id).containsExactly("proxy-sonnet", "proxy-opus",
+                "example-large", "example-small");
         assertThat(catalog.defaultModel().orElseThrow().id()).isEqualTo("proxy-sonnet");
-        var glm = catalog.find("glm").orElseThrow();
-        assertThat(glm.baseUrl()).isEqualTo("https://api.z.ai/api/anthropic");
-        assertThat(glm.endpointOrigin()).isEqualTo("https://api.z.ai");
-        assertThat(glm.secretVariable()).isEqualTo("ZAI_KEY");
-        assertThat(glm.efforts()).containsExactly("low", "high", "max");
-        assertThat(glm.defaultEffort()).isEqualTo("max");
-        assertThat(glm.maxOutputTokens()).isEqualTo(16384);
-        assertThat(catalog.all().toString()).doesNotContain("proxy-secret", "zai-secret", "pi-secret");
+        var example = catalog.find("example-large").orElseThrow();
+        assertThat(example.baseUrl()).isEqualTo("https://api.example.com/anthropic");
+        assertThat(example.endpointOrigin()).isEqualTo("https://api.example.com");
+        assertThat(example.secretVariable()).isEqualTo("EXAMPLE_KEY");
+        assertThat(example.efforts()).containsExactly("low", "high", "max");
+        assertThat(example.defaultEffort()).isEqualTo("max");
+        assertThat(example.maxOutputTokens()).isEqualTo(16384);
+        assertThat(catalog.all().toString()).doesNotContain("proxy-secret", "example-secret", "pi-secret");
         // Every secret is hidden, also those of models that Claude Code cannot run.
-        assertThat(catalog.redact("proxy-secret zai-secret pi-secret")).isEqualTo("[REDACTED] [REDACTED] [REDACTED]");
+        assertThat(catalog.redact("proxy-secret example-secret pi-secret"))
+                .isEqualTo("[REDACTED] [REDACTED] [REDACTED]");
     }
 
     @Test
     void onlyASecretOfSixteenOrMoreCharactersCountsInAPatch() {
-        var secrets = Map.of("PROXY_TOKEN", "codemie-proxy", "ZAI_KEY", "zai-0123456789abcdef", "PI_KEY", "pi-secret");
+        var secrets = Map.of("PROXY_TOKEN", "codemie-proxy", "EXAMPLE_KEY", "example-0123456789abcdef",
+                "PI_KEY", "pi-secret");
         var catalog = new ModelCatalog(FIXTURE, "claude-code", secrets::get);
 
-        assertThat(catalog.holdsSecret("token: zai-0123456789abcdef")).isTrue();
+        assertThat(catalog.holdsSecret("token: example-0123456789abcdef")).isTrue();
         // The public word of a local proxy and other short secrets also turn up in ordinary code.
         assertThat(catalog.holdsSecret("Start the proxy with codemie-proxy, then pi-secret.")).isFalse();
     }
@@ -147,7 +150,7 @@ class ModelCatalogTest {
 
         assertThat(catalog.ready()).isEmpty();
         assertThat(catalog.defaultModel()).isEmpty();
-        assertThat(catalog.problem(catalog.find("glm").orElseThrow()))
+        assertThat(catalog.problem(catalog.find("example-large").orElseThrow()))
                 .contains("Pi takes its model from FACTORY_PI_MODEL; this file gives Pi only prices.");
     }
 
@@ -159,12 +162,12 @@ class ModelCatalogTest {
         assertThat(defaults.model().id()).isEqualTo("proxy-sonnet");
         assertThat(defaults.effort()).isEqualTo("high");
         assertThat(defaults.instructions()).isNull();
-        var glm = catalog.choose("glm", "low", " Use the REST URL. ");
-        assertThat(glm.model().id()).isEqualTo("glm");
-        assertThat(glm.effort()).isEqualTo("low");
-        assertThat(glm.instructions()).isEqualTo("Use the REST URL.");
-        assertThatThrownBy(() -> catalog.choose("glm", "medium", null))
-                .hasMessage("Effort medium is not available for model glm. Choose one of: low, high, max.");
+        var example = catalog.choose("example-large", "low", " Use the REST URL. ");
+        assertThat(example.model().id()).isEqualTo("example-large");
+        assertThat(example.effort()).isEqualTo("low");
+        assertThat(example.instructions()).isEqualTo("Use the REST URL.");
+        assertThatThrownBy(() -> catalog.choose("example-large", "medium", null))
+                .hasMessage("Effort medium is not available for model example-large. Choose one of: low, high, max.");
         assertThatThrownBy(() -> catalog.choose("other", null, null))
                 .hasMessage("There is no model other. Reload the page and choose a model from the list.");
         assertThatThrownBy(() -> catalog.choose(null, null, "x".repeat(8001)))
@@ -175,15 +178,16 @@ class ModelCatalogTest {
     @Test
     void theDefaultModelIsTheNamedOneOrTheFirstThatClaudeCodeCanRun() {
         var models = FIXTURE.models();
-        var named = new ModelCatalog(new ModelCatalog.Properties(models, "glm"), "claude-code", name -> null);
-        assertThat(named.defaultModel().orElseThrow().id()).isEqualTo("glm");
+        var named = new ModelCatalog(new ModelCatalog.Properties(models, "example-large"), "claude-code",
+                name -> null);
+        assertThat(named.defaultModel().orElseThrow().id()).isEqualTo("example-large");
         // Readiness does not move the default: without secrets it stays the first Claude Code model.
         var blank = new ModelCatalog(new ModelCatalog.Properties(models, " "), "claude-code", name -> null);
         assertThat(blank.defaultModel().orElseThrow().id()).isEqualTo("proxy-sonnet");
-        assertThatThrownBy(() -> new ModelCatalog(new ModelCatalog.Properties(models, "glm-6"), "claude-code",
+        assertThatThrownBy(() -> new ModelCatalog(new ModelCatalog.Properties(models, "example-huge"), "claude-code",
                 name -> null))
-                .hasMessage("FACTORY_DEV_FACTORY_DEFAULT_MODEL is glm-6, but config/developer-models.yaml has no"
-                        + " model with that id. Leave it empty or use an id from the file.");
+                .hasMessage("FACTORY_DEV_FACTORY_DEFAULT_MODEL is example-huge, but config/developer-models.yaml has"
+                        + " no model with that id. Leave it empty or use an id from the file.");
         var none = new ModelCatalog(file(), "claude-code", name -> null);
         assertThatThrownBy(() -> none.choose(null, null, null))
                 .hasMessage("No model in config/developer-models.yaml can run with Claude Code. Add a model with api"
@@ -192,28 +196,35 @@ class ModelCatalogTest {
 
     @Test
     void invalidEntriesStopStartupWithAMessageThatNamesTheField() {
-        assertInvalid(entry("glm", List.of("low", "high"), "max"),
-                "config/developer-models.yaml, model glm: default-effort must be one of its efforts: low, high.");
-        assertInvalid(entry("glm", List.of(), "max"), "efforts must list the model's effort levels once each");
-        assertInvalid(entry("glm", List.of("low", "low"), "low"), "efforts must list the model's effort levels");
-        assertInvalid(entry("Glm 5", List.of("max"), "max"), "every model needs an id of lower-case letters");
-        assertInvalid(new ModelEntry("glm", "openai-chat", "https://api.z.ai", "bearer-token", "FACTORY_ZAI_API_KEY",
-                "glm", List.of("max"), "max", null, null, null), "api must be one of: openai-completions");
-        assertInvalid(new ModelEntry("glm", "anthropic-messages", "https://user:pw@api.z.ai", "bearer-token",
-                "FACTORY_ZAI_API_KEY", "glm", List.of("max"), "max", null, null, null), "base-url must be an HTTP(S) URL");
-        assertInvalid(new ModelEntry("glm", "anthropic-messages", "https://api.z.ai", "bearer-token",
-                "zai-secret-value", "glm", List.of("max"), "max", null, null, null), "secret-env must be the name");
-        assertInvalid(new ModelEntry("glm", "anthropic-messages", "https://api.z.ai", "oauth",
-                "FACTORY_ZAI_API_KEY", "glm", List.of("max"), "max", null, null, null), "authentication must be");
+        assertInvalid(entry("example-large", List.of("low", "high"), "max"), "config/developer-models.yaml,"
+                + " model example-large: default-effort must be one of its efforts: low, high.");
+        assertInvalid(entry("example-large", List.of(), "max"),
+                "efforts must list the model's effort levels once each");
+        assertInvalid(entry("example-large", List.of("low", "low"), "low"),
+                "efforts must list the model's effort levels");
+        assertInvalid(entry("Example 5", List.of("max"), "max"), "every model needs an id of lower-case letters");
+        assertInvalid(new ModelEntry("example-large", "openai-chat", "https://api.example.com", "bearer-token",
+                "FACTORY_EXAMPLE_API_KEY", "example-large", List.of("max"), "max", null, null, null),
+                "api must be one of: openai-completions");
+        assertInvalid(new ModelEntry("example-large", "anthropic-messages", "https://user:pw@api.example.com",
+                "bearer-token", "FACTORY_EXAMPLE_API_KEY", "example-large", List.of("max"), "max", null, null, null),
+                "base-url must be an HTTP(S) URL");
+        assertInvalid(new ModelEntry("example-large", "anthropic-messages", "https://api.example.com", "bearer-token",
+                "example-secret-value", "example-large", List.of("max"), "max", null, null, null),
+                "secret-env must be the name");
+        assertInvalid(new ModelEntry("example-large", "anthropic-messages", "https://api.example.com", "oauth",
+                "FACTORY_EXAMPLE_API_KEY", "example-large", List.of("max"), "max", null, null, null),
+                "authentication must be");
         assertInvalid(withPrice(new ModelPrice("usd", LocalDate.now(), null, null, null, null, null, null, null)),
                 "price.currency must be an ISO code");
         assertInvalid(withPrice(new ModelPrice("USD", LocalDate.now(), java.net.URI.create("http://x.example"),
                 null, null, null, null, null, null)), "price.source must be the https address");
         assertInvalid(withPrice(new ModelPrice("USD", LocalDate.now(), java.net.URI.create("https://x.example"),
                 BigDecimal.ONE.negate(), null, null, null, null, null)), "a price cannot be negative");
-        var twice = entry("glm", List.of("max"), "max");
+        var twice = entry("example-large", List.of("max"), "max");
         assertThatThrownBy(() -> new ModelCatalog(file(twice, twice), "claude-code", name -> null))
-                .hasMessage("config/developer-models.yaml: model id glm is used twice; give each model its own id.");
+                .hasMessage("config/developer-models.yaml: model id example-large is used twice; give each model its"
+                        + " own id.");
     }
 
     @Test
@@ -225,14 +236,14 @@ class ModelCatalogTest {
         var legacy = catalog.resolve(new CodingRequest.RunSettings("env-default", null, null));
         assertThat(legacy.model().id()).isEqualTo("proxy-sonnet");
         assertThat(legacy.effort()).isEqualTo("high");
-        var run = catalog.resolve(new CodingRequest.RunSettings("glm-flash", null, "Note"));
+        var run = catalog.resolve(new CodingRequest.RunSettings("example-small", null, "Note"));
         assertThat(run.effort()).isEqualTo("max");
         assertThat(run.instructions()).isEqualTo("Note");
         assertThatThrownBy(() -> catalog.resolve(new CodingRequest.RunSettings("removed", null, null)))
                 .isInstanceOf(ModelCatalog.ModelException.class)
                 .hasMessage("This run uses model removed, which is not in config/developer-models.yaml any more."
                         + " Add it back, or retry the task with another model.");
-        assertThatThrownBy(() -> catalog.resolve(new CodingRequest.RunSettings("glm", "medium", null)))
+        assertThatThrownBy(() -> catalog.resolve(new CodingRequest.RunSettings("example-large", "medium", null)))
                 .isInstanceOf(ModelCatalog.ModelException.class).hasMessageContaining("no longer allows effort");
     }
 
@@ -240,11 +251,12 @@ class ModelCatalogTest {
     void storedSettingsKeepTheirJsonNamesAndOldTurnLimitsAreSkipped() {
         var json = JsonMapper.builder().build();
 
-        var old = json.readValue("{\"profileId\":\"glm-5.3\",\"effort\":\"max\",\"maxTurns\":1,\"instructions\":null}",
+        var old = json.readValue(
+                "{\"profileId\":\"example-large\",\"effort\":\"max\",\"maxTurns\":1,\"instructions\":null}",
                 CodingRequest.RunSettings.class);
-        assertThat(old).isEqualTo(new CodingRequest.RunSettings("glm-5.3", "max", null));
-        assertThat(json.writeValueAsString(new CodingRequest.RunSettings("glm-5.3", "low", null)))
-                .contains("\"profileId\":\"glm-5.3\"").doesNotContain("modelId", "maxTurns");
+        assertThat(old).isEqualTo(new CodingRequest.RunSettings("example-large", "max", null));
+        assertThat(json.writeValueAsString(new CodingRequest.RunSettings("example-large", "low", null)))
+                .contains("\"profileId\":\"example-large\"").doesNotContain("modelId", "maxTurns");
     }
 
     @Test
@@ -253,16 +265,16 @@ class ModelCatalogTest {
 
         assertThat(catalog.pricedEntry("proxy-opus", "anything").orElseThrow().price().outputPerMillion())
                 .isEqualByComparingTo("20.00");
-        assertThat(catalog.pricedEntry(null, "glm").orElseThrow().id()).isEqualTo("glm");
+        assertThat(catalog.pricedEntry(null, "example-large").orElseThrow().id()).isEqualTo("example-large");
         assertThat(catalog.pricedEntry(null, "gemini-flash").orElseThrow().id()).isEqualTo("gemini");
         // An entry without a price is not priced, by id or by its model string.
-        assertThat(catalog.pricedEntry("glm-flash", "glm-flash")).isEmpty();
-        assertThat(catalog.pricedEntry(null, "glm-flash")).isEmpty();
+        assertThat(catalog.pricedEntry("example-small", "example-small")).isEmpty();
+        assertThat(catalog.pricedEntry(null, "example-small")).isEmpty();
         // Two entries run claude-sonnet at different providers: without the entry id the price is unknown.
         assertThat(catalog.pricedEntry(null, "claude-sonnet")).isEmpty();
         assertThat(catalog.pricedEntry("removed", "claude-sonnet")).isEmpty();
         // A removed entry is not priced as another entry that happens to have the same model string.
-        assertThat(catalog.pricedEntry("removed", "glm")).isEmpty();
+        assertThat(catalog.pricedEntry("removed", "example-large")).isEmpty();
     }
 
     private static void assertInvalid(ModelEntry entry, String message) {
@@ -272,13 +284,13 @@ class ModelCatalogTest {
     }
 
     private static ModelEntry entry(String id, List<String> efforts, String defaultEffort) {
-        return new ModelEntry(id, "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
-                "FACTORY_ZAI_API_KEY", "glm", efforts, defaultEffort, null, null, null);
+        return new ModelEntry(id, "anthropic-messages", "https://api.example.com/anthropic", "bearer-token",
+                "FACTORY_EXAMPLE_API_KEY", "example-large", efforts, defaultEffort, null, null, null);
     }
 
     private static ModelEntry withPrice(ModelPrice price) {
-        return new ModelEntry("glm", "anthropic-messages", "https://api.z.ai", "bearer-token", "FACTORY_ZAI_API_KEY",
-                "glm", List.of("max"), "max", null, price, null);
+        return new ModelEntry("example-large", "anthropic-messages", "https://api.example.com", "bearer-token",
+                "FACTORY_EXAMPLE_API_KEY", "example-large", List.of("max"), "max", null, price, null);
     }
 
     private static ModelEntry anthropic(String id, String authentication, String secretEnv, String model,

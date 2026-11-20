@@ -44,9 +44,10 @@ class DeveloperConfigurationPageTest {
             "anthropic-messages", "http://proxy:4001", "bearer-token", "low, high; default high",
             "default · proxy:4001 · effort low, high · no price",
             List.of(new Check("api", Status.PASS, "fine"), new Check("price", Status.WARN, "Add a price.")));
-    private static final ModelRow BLOCKED = new ModelRow("glm", false, false, "glm-5.3", "anthropic-messages",
-            "https://api.z.ai", "bearer-token", "max; default max", "api.z.ai · effort max · no price",
-            List.of(new Check("secret", Status.FAIL, "Set FACTORY_ZAI_API_KEY."),
+    private static final ModelRow BLOCKED = new ModelRow("example-large", false, false, "example-large",
+            "anthropic-messages", "https://api.example.com", "bearer-token", "max; default max",
+            "api.example.com · effort max · no price",
+            List.of(new Check("secret", Status.FAIL, "Set FACTORY_EXAMPLE_API_KEY."),
                     new Check("price", Status.WARN, "Add a price.")));
 
     @Mock
@@ -80,8 +81,8 @@ class DeveloperConfigurationPageTest {
             assertThat(model.warnings()).containsExactly("Add a price.");
         });
         assertThat(view.models().blocked()).singleElement().satisfies(model -> {
-            assertThat(model.name()).isEqualTo("glm");
-            assertThat(model.fixes()).containsExactly("Set FACTORY_ZAI_API_KEY.");
+            assertThat(model.name()).isEqualTo("example-large");
+            assertThat(model.fixes()).containsExactly("Set FACTORY_EXAMPLE_API_KEY.");
         });
         assertThat(view.start().title()).isEqualTo("Factory can start runs");
         assertThat(view.start().fixes()).isEmpty();

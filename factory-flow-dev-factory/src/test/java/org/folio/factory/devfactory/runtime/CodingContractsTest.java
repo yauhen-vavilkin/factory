@@ -95,7 +95,7 @@ class CodingContractsTest {
         String requestJson = prompt.substring(prompt.indexOf("Factory CodingRequest JSON:\n") + 28,
                 prompt.indexOf("\n\nInstructions from the operator:"));
         assertThat(json.readTree(requestJson).has("runSettings")).isFalse();
-        assertThat(requestJson).doesNotContain("glm-5.3", "effort", "profileId");
+        assertThat(requestJson).doesNotContain("example-large", "effort", "profileId");
         // The request itself keeps the settings, so dev_coding_request.json carries them to PR feedback.
         var copy = json.readValue(json.writeValueAsString(request), CodingRequest.class);
         assertThat(copy.runSettings()).isEqualTo(request.runSettings());
@@ -106,7 +106,7 @@ class CodingContractsTest {
     private static CodingRequest withRunSettings(CodingRequest base) {
         return new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),
                 base.linkedIssues(), base.acceptanceCriteria(), base.confirmedDecisions(), base.repository(),
-                base.constraints(), new CodingRequest.RunSettings("glm-5.3", "max",
+                base.constraints(), new CodingRequest.RunSettings("example-large", "max",
                         "Read the ADR through the wiki REST URL."), List.of());
     }
 

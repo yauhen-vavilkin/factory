@@ -140,7 +140,7 @@
                     <dd><th:block th:each="source, state : ${links.pricing()}"><th:block th:unless="${state.first}">,
                             </th:block><a class="dev-link ext-link" th:if="${source.url() != null}"
                             th:href="${source.url()}" target="_blank" rel="noopener noreferrer"
-                            th:text="${source.url()}">https://docs.z.ai/guides/overview/pricing</a><th:block
+                            th:text="${source.url()}">https://platform.claude.com/docs/en/about-claude/pricing</a><th:block
                             th:text="${source.text()}"> (2026-09-19)</th:block></th:block>.
                         Real provider charges may differ.</dd>
                 </th:block>

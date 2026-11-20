@@ -81,12 +81,12 @@ import static org.mockito.Mockito.when;
         "factory.tasks.source.assignee=Jane Developer",
         "FACTORY_CODEMIE_PROXY_TOKEN=" + UiRenderSmokeTest.PROXY_TOKEN,
         "FACTORY_ANTHROPIC_API_KEY=",
-        "FACTORY_ZAI_API_KEY=" + UiRenderSmokeTest.ZAI_KEY})
+        "FACTORY_PI_API_KEY=" + UiRenderSmokeTest.PI_KEY})
 // Own context: its own Jira, assignee and model secrets for the rendered pages; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class UiRenderSmokeTest {
 
-    static final String ZAI_KEY = "smoke-zai-secret-key";
+    static final String PI_KEY = "smoke-pi-secret-key";
     static final String PROXY_TOKEN = "smoke-proxy-secret-token";
     private static final String LUNA_FIX = "This model uses the OpenAI Responses API; Claude Code needs the"
             + " Anthropic Messages API. Point it at an Anthropic-compatible endpoint, or run it with Pi: set"
@@ -253,8 +253,8 @@ class UiRenderSmokeTest {
                         "codemie-haiku-4.5",
                         "default · host.docker.internal:4001 · effort low, medium, high, xhigh, max · price from"
                                 + " platform.claude.com, 2026-11-03",
-                        "Cannot run <span class=\"dev-count\">(2)</span>", "glm-5.3",
-                        "FACTORY_ZAI_API_KEY is empty. Set it in .env.", "codemie-gpt-5.6-luna", LUNA_FIX)
+                        "Cannot run <span class=\"dev-count\">(2)</span>", "anthropic-sonnet-5.5",
+                        "FACTORY_ANTHROPIC_API_KEY is empty. Set it in .env.", "codemie-gpt-5.6-luna", LUNA_FIX)
                 .containsOnlyOnce("Factory cannot open a connection to http://host.docker.internal:4001. Runs with"
                         + " these models fail if the coding container cannot reach it either. Start the service at"
                         + " that address, or fix base-url in config/developer-models.yaml.")
@@ -328,11 +328,13 @@ class UiRenderSmokeTest {
                 "anthropic-messages", "https://proxy.example.org", "bearer-token", "high; default high",
                 "proxy.example.org · effort high · price from platform.claude.com, 2026-11-03",
                 List.of(new DeveloperPreflight.Check("endpoint", DeveloperPreflight.Status.PASS, "Reachable.")));
-        var glm = new ModelChecks.ModelRow("glm-5.3", false, false, "glm-5.3", "anthropic-messages",
-                "https://api.z.ai", "bearer-token", "low, high, max; default max", "api.z.ai · effort low, high, max",
+        var anthropic = new ModelChecks.ModelRow("anthropic-sonnet-5.5", false, false, "claude-sonnet-5-5",
+                "anthropic-messages", "https://api.anthropic.com", "api-key",
+                "low, medium, high, xhigh, max; default high",
+                "api.anthropic.com · effort low, medium, high, xhigh, max",
                 List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
-                        "FACTORY_ZAI_API_KEY is empty. Set it in .env. If docker-compose.yml does not pass it to the"
-                                + " factory service yet, add it there. Then run docker compose up -d.")));
+                        "FACTORY_ANTHROPIC_API_KEY is empty. Set it in .env. If docker-compose.yml does not pass it to"
+                                + " the factory service yet, add it there. Then run docker compose up -d.")));
         var luna = new ModelChecks.ModelRow("codemie-gpt-5.6-luna", false, false, "gpt-5.6-luna", "openai-responses",
                 "http://host.docker.internal:4001", "api-key", "low, medium, high; default medium",
                 "host.docker.internal:4001 · effort low, medium, high",
@@ -340,7 +342,7 @@ class UiRenderSmokeTest {
         var checks = issueKey == null ? List.of(docker, inferenceCheck) : List.of(deliveryCheck, inferenceCheck);
         var report = new DeveloperPreflight.Report(deliveryStatus == DeveloperPreflight.Status.PASS,
                 issueKey == null ? "" : issueKey, Map.of("runtime", "claude-code"), List.of(), checks,
-                List.of(sonnet, haiku, opus, glm, luna));
+                List.of(sonnet, haiku, opus, anthropic, luna));
         when(developerPreflight.check(issueKey)).thenReturn(report);
 
         String path = "/developer/configuration";
@@ -348,7 +350,7 @@ class UiRenderSmokeTest {
             path += "?issueKey=" + issueKey;
         }
         String body = assertRendered(path, "Developer Flow configuration");
-        assertThat(body).doesNotContain(ZAI_KEY, PROXY_TOKEN);
+        assertThat(body).doesNotContain(PI_KEY, PROXY_TOKEN);
         return body;
     }
 
@@ -1046,7 +1048,7 @@ class UiRenderSmokeTest {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider",
-                        "model", "glm-5.3-flash", "image", "factory-dev-pi:0.85.1-java21"));
+                        "model", "gemini-3.8-flash", "image", "factory-dev-pi:0.85.1-java21"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
@@ -1054,16 +1056,16 @@ class UiRenderSmokeTest {
         String body = assertRendered("/executions/" + execution.getId(), "<dt>Pricing</dt>");
         assertThat(usageColumn(body)).contains("<h2 class=\"dev-section-title\" id=\"usage-title\">Usage</h2>",
                         "<dt>Input</dt>", "<dt>Cache read</dt>", "<dt>Cache write</dt>", "<dt>Output</dt>",
-                        "<dt>Total tokens</dt>", ">Estimated cost</dt>", "$0.02")
+                        "<dt>Total tokens</dt>", ">Estimated cost</dt>", "$0.11")
                 .doesNotContain("<dt>Model</dt>", "<dt>Provider</dt>", "<dt>Runtime</dt>", "<dt>Image</dt>");
         // Model and effort are in the header; provider, runtime and image are not on the page.
-        assertThat(body).contains("<span>glm-5.3-flash</span>", "Real provider charges may differ.")
+        assertThat(body).contains("<span>gemini-3.8-flash</span>", "Real provider charges may differ.")
                 // The price source and its date, whatever the models file says today.
                 .containsPattern("</a>\\s*\\(\\d{4}-\\d{2}-\\d{2}\\)")
                 // A price source that is a web address opens in a new tab.
                 .containsPattern("<a class=\"dev-link ext-link\" href=\"(https://[^\"]+)\" target=\"_blank\""
                         + " rel=\"noopener noreferrer\">\\1</a>")
-                .containsPattern("<span class=\"status-card-money\">\\$0.02</span>\\s*"
+                .containsPattern("<span class=\"status-card-money\">\\$0.11</span>\\s*"
                         + "<span class=\"status-card-note\">so far</span>")
                 .doesNotContain("test-provider", "factory-dev-pi");
     }
@@ -1102,14 +1104,15 @@ class UiRenderSmokeTest {
         var legacy = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{}"));
         auditLog.record(legacy.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "coding_starting", "runtime", "claude-code", "provider", "anthropic-messages",
-                        "profile", "glm-5.3", "profileLabel", "GLM-5.3 (Z.ai)", "model", "glm-5.3",
+                        "profile", "codemie-haiku-5.5", "profileLabel", "Haiku 5.5 (CodeMie)",
+                        "model", "claude-haiku-5-5",
                         "effort", "max", "maxTurns", 100));
 
         assertThat(header(assertRendered("/executions/" + execution.getId(), "Developer Flow")))
                 .contains("<span>codemie-sonnet-5.5 · high</span>")
                 .doesNotContain("claude-sonnet-5-5", "Max turns", "200");
         assertThat(header(assertRendered("/executions/" + legacy.getId(), "Developer Flow")))
-                .contains("<span>GLM-5.3 (Z.ai) · max</span>");
+                .contains("<span>Haiku 5.5 (CodeMie) · max</span>");
     }
 
     private static String usageColumn(String body) {
@@ -1210,7 +1213,7 @@ class UiRenderSmokeTest {
                 "{\"status\":\"FAILED\",\"failure\":{\"code\":\"PROVIDER_RETRIES_EXHAUSTED\","
                         + "\"message\":\"Pi provider request failed: HTTP 429 (rate limited)\"}}", "implement");
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "glm-5.3-flash"));
+                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "gemini-3.8-flash"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "coding_usage", "inputTokens", 40_000, "cacheReadTokens", 100_000,
                         "cacheWriteTokens", 0, "outputTokens", 4_000));
@@ -1222,11 +1225,11 @@ class UiRenderSmokeTest {
                         "reason", "HTTP 429 (rate limited)"));
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement",
                 Map.of("inputTokens", 100_000, "cacheReadTokens", 200_000, "cacheWriteTokens", 0,
-                        "outputTokens", 10_000, "provider", "test-provider", "model", "glm-5.3-flash"));
+                        "outputTokens", 10_000, "provider", "test-provider", "model", "gemini-3.8-flash"));
 
         String body = assertRendered("/executions/" + execution.getId(), "Activity");
         assertThat(body).contains("<p class=\"status-card-headline\">This run failed</p>", "HTTP 429 (rate limited)",
-                        "310k", "$0.03", "Coding runtime retrying request (1/3) · HTTP 429 (rate limited)",
+                        "310k", "$0.13", "Coding runtime retrying request (1/3) · HTTP 429 (rate limited)",
                         "Provider request failed · HTTP 429 (rate limited)")
                 .doesNotContain("PROVIDER_RETRIES_EXHAUSTED");
     }
@@ -1593,8 +1596,8 @@ class UiRenderSmokeTest {
         assertThat(run).contains("name=\"modelId\"", "data-model-select")
                 .containsPattern("<option value=\"codemie-sonnet-5.5\"(?=[^>]*selected=\"selected\")"
                         + "(?=[^>]*data-efforts=\"low medium high xhigh max\")(?=[^>]*data-default-effort=\"high\")")
-                .containsPattern("<option value=\"glm-5.3\"(?=[^>]*data-efforts=\"low high max\")"
-                        + "(?=[^>]*data-default-effort=\"max\")")
+                .containsPattern("<option value=\"codemie-opus-5.5\"(?=[^>]*data-efforts=\"low medium high xhigh max\")"
+                        + "(?=[^>]*data-default-effort=\"medium\")")
                 .doesNotContain("value=\"anthropic-sonnet-5.5\"", "value=\"codemie-gemini-3.8-flash\"");
         // Effort on each row that can run: radio buttons of the selected model, its default checked.
         assertThat(body)
@@ -1602,7 +1605,7 @@ class UiRenderSmokeTest {
                 .containsPattern(radio("effort-" + seed.awaiting().getId(), "high") + "(?=[^>]*checked=\"checked\")")
                 .containsPattern(radio("effort-" + seed.awaiting().getId(), "xhigh") + "(?![^>]*checked)")
                 .doesNotContain("name=\"effort-" + seed.unsupported().getId() + "\"", "Max turns", "name=\"maxTurns\"");
-        assertThat(body).doesNotContain(ZAI_KEY, PROXY_TOKEN, "not configured)");
+        assertThat(body).doesNotContain(PI_KEY, PROXY_TOKEN, "not configured)");
     }
 
     @Test
@@ -1691,27 +1694,27 @@ class UiRenderSmokeTest {
         resetTaskData();
         Task eligible = seedTask("70201", "MODBAR-761", "Eligible task", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar");
-        // The same models file, but only FACTORY_ZAI_API_KEY is set, and glm-5.3-flash is the only other model.
-        var glmOnly = new ModelCatalog(new ModelCatalog.Properties(modelsFile.models().stream()
-                .filter(model -> model.id().startsWith("glm-5.3")).toList(), "glm-5.3"), "claude-code",
-                name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
-        var withoutProxy = new TaskRunSettings(codingRuntime, glmOnly);
-        doAnswer(call -> withoutProxy.form()).when(runSettings).form();
+        // The same models file with only the CodeMie token set and codemie-opus-5.5 as the default model: the
+        // Anthropic API model has no key and is not offered.
+        var proxyOnly = new ModelCatalog(new ModelCatalog.Properties(modelsFile.models(), "codemie-opus-5.5"),
+                "claude-code", name -> "FACTORY_CODEMIE_PROXY_TOKEN".equals(name) ? PROXY_TOKEN : null);
+        var withoutAnthropicKey = new TaskRunSettings(codingRuntime, proxyOnly);
+        doAnswer(call -> withoutAnthropicKey.form()).when(runSettings).form();
 
         String body = assertRendered("/flows/dev-factory", "Ready to run");
-        assertThat(body).containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
-                .contains("value=\"glm-5.3-flash\"")
-                .doesNotContain("value=\"codemie-sonnet-5.5\"", "not configured)")
+        assertThat(body).containsPattern("<option value=\"codemie-opus-5.5\"[^>]*selected=\"selected\"")
+                .contains("value=\"codemie-haiku-5.5\"")
+                .doesNotContain("value=\"anthropic-sonnet-5.5\"", "not configured)")
                 .containsPattern("<input type=\"radio\" name=\"effort-" + eligible.getId()
-                        + "\" value=\"max\" checked=\"checked\">");
+                        + "\" value=\"medium\" checked=\"checked\">");
 
         var oneModel = new ModelCatalog(new ModelCatalog.Properties(modelsFile.models().stream()
-                .filter(model -> model.id().equals("glm-5.3")).toList(), null), "claude-code",
-                name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
+                .filter(model -> model.id().equals("anthropic-sonnet-5.5")).toList(), null), "claude-code",
+                name -> "FACTORY_ANTHROPIC_API_KEY".equals(name) ? "smoke-anthropic-secret-key" : null);
         var single = new TaskRunSettings(codingRuntime, oneModel);
         doAnswer(call -> single.form()).when(runSettings).form();
         assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
-                .contains("<input type=\"hidden\" name=\"modelId\" value=\"glm-5.3\">")
+                .contains("<input type=\"hidden\" name=\"modelId\" value=\"anthropic-sonnet-5.5\">")
                 .doesNotContain("data-model-select", "<span>Model</span>");
 
         var none = new TaskRunSettings(codingRuntime, new ModelCatalog(modelsFile, "claude-code", name -> null));
@@ -1797,8 +1800,9 @@ class UiRenderSmokeTest {
         TaskAttempt attempt = seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL,
                 TaskAttempt.State.STOPPED, "VERIFICATION_FAILED: 2 tests in error");
         attempt.setExecutionId(execution.getId());
-        attempt.setRunSettings("{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\",\"model\":\"glm-5.3\","
-                + "\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\",\"maxTurns\":77,"
+        attempt.setRunSettings("{\"profileId\":\"codemie-opus-5.5\",\"profileLabel\":\"Opus 5.5 (CodeMie)\","
+                + "\"model\":\"claude-opus-5-5\",\"endpointOrigin\":\"http://host.docker.internal:4001\","
+                + "\"effort\":\"low\",\"maxTurns\":77,"
                 + "\"instructions\":\"Read the ADR through the wiki <REST> URL.\"}");
         taskAttempts.save(attempt);
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
@@ -1846,9 +1850,9 @@ class UiRenderSmokeTest {
                 .doesNotContain(">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>", "value=\"77\"", "Max turns")
                 // A new attempt starts from the configured model and effort, not from the previous attempt's.
                 .containsPattern("<option value=\"codemie-sonnet-5.5\"[^>]*selected=\"selected\"")
-                .doesNotContainPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
+                .doesNotContainPattern("<option value=\"codemie-opus-5.5\"[^>]*selected=\"selected\"")
                 .containsPattern(radio("effort", "high") + "(?=[^>]*checked=\"checked\")");
-        assertThat(body).doesNotContain(ZAI_KEY);
+        assertThat(body).doesNotContain(PI_KEY);
     }
 
     @Test
@@ -1857,7 +1861,7 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/tasks/" + failed.task().getId(), "Failed");
         String attempts = body.substring(body.indexOf("id=\"attempts-title\""));
-        assertThat(text(attempts)).contains("Run 1 &quot;Read the ADR", "glm-5.3 · low", "&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;");
+        assertThat(text(attempts)).contains("Run 1 &quot;Read the ADR", "codemie-opus-5.5 · low", "&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;");
         // The quote is the last part of the row's first line, so a narrow row cuts the quote first.
         assertThat(attempts).contains(">&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;</span>")
                 .containsPattern("<a(?=[^>]*href=\"/executions/" + failed.execution().getId() + "\")"
@@ -2049,11 +2053,11 @@ class UiRenderSmokeTest {
         resetTaskData();
         var task = seedTask("7911", "MODBAR-7911", "Task delivered with a second model", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar");
-        withSettings(spendingAttempt(task, 1, TaskAttempt.State.STOPPED, 900_000), "glm-5.3", "max");
-        withSettings(pullRequestAttempt(task, 2, 300_000, 44, null, null), "glm-5.3-flash", "high");
+        withSettings(spendingAttempt(task, 1, TaskAttempt.State.STOPPED, 900_000), "codemie-opus-5.5", "max");
+        withSettings(pullRequestAttempt(task, 2, 300_000, 44, null, null), "codemie-haiku-5.5", "high");
         withSettings(spendingAttempt(seedTask("7912", "MODBAR-7912", "Task that only failed",
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 700_000), "glm-5.3",
-                "max");
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 700_000),
+                "codemie-opus-5.5", "max");
         spendingAttempt(seedTask("7913", "MODBAR-7913", "Task run before models were recorded",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 100_000);
         spendingAttempt(seedTask("7914", "MODBAR-7914", "Task whose run has no price", Task.Eligibility.ELIGIBLE,
@@ -2062,8 +2066,8 @@ class UiRenderSmokeTest {
         String page = text(assertRendered("/developer/statistics", "Developer Flow statistics"));
         assertThat(page.substring(page.indexOf("By model and effort")))
                 .containsSubsequence("By model and effort", "Model · effort Runs Pull requests Per run Spent",
-                        "glm-5.3 · max 2 0 $0.80 $1.60",
-                        "glm-5.3-flash · high 1 1 $0.30 $0.30",
+                        "codemie-opus-5.5 · max 2 0 $0.80 $1.60",
+                        "codemie-haiku-5.5 · high 1 1 $0.30 $0.30",
                         "Model not recorded 2 0 $0.10 $0.10");
     }
 
@@ -2143,7 +2147,8 @@ class UiRenderSmokeTest {
         spendingAttempt(task, 2, TaskAttempt.State.STOPPED, 200_000);
         var instructed = spendingAttempt(task, 3, TaskAttempt.State.STOPPED, 100_000);
         instructed.setRunSettings(JsonMapper.builder().build().writeValueAsString(new CodingRequest.RunSettings(
-                "glm-5.3", "max", "Change only FolioTenantApiClient and its test.\nLeave the rest as it is.")));
+                "codemie-opus-5.5", "max",
+                "Change only FolioTenantApiClient and its test.\nLeave the rest as it is.")));
         taskAttempts.save(instructed);
 
         // The cell cuts what does not fit, so its title has the kind and the quote; a first run has neither.

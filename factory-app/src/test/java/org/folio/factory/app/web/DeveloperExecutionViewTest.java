@@ -58,11 +58,11 @@ class DeveloperExecutionViewTest {
         var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
         Instant start = Instant.parse("2026-10-27T10:00:00Z");
         var started = runtime(Map.of("activity", "coding_starting", "runtime", "claude-code",
-                "provider", "anthropic-messages", "profile", "glm-5.3", "profileLabel", "GLM-5.3 (Z.ai)",
-                "model", "glm-5.3", "effort", "high (CLI default)", "maxTurns", 100), start);
+                "provider", "anthropic-messages", "profile", "example-large", "profileLabel", "Example Large (Example)",
+                "model", "example-large", "effort", "high (CLI default)", "maxTurns", 100), start);
 
         assertThat(view.build(execution, List.of(), List.of(started), start.plusSeconds(1)).settings())
-                .isEqualTo("GLM-5.3 (Z.ai) · high (CLI default)");
+                .isEqualTo("Example Large (Example) · high (CLI default)");
     }
 
     @Test void configuredModelIsVisibleBeforeCodingAndDoesNotImplyAgentStarted() {

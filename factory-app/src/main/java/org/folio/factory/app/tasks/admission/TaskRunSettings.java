@@ -75,7 +75,7 @@ public class TaskRunSettings {
                 : JSON.readValue(snapshot, CodingRequest.RunSettings.class);
     }
 
-    /** "glm-5.3 · max" for the Runs rows of the task page; null when the attempt names no model. */
+    /** "codemie-sonnet-5.5 · high" for the Runs rows of the task page; null when the attempt names no model. */
     public static String label(String snapshot) {
         CodingRequest.RunSettings stored = settings(snapshot);
         if (stored == null || stored.modelId() == null) {

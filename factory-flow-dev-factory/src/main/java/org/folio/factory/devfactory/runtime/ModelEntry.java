@@ -51,7 +51,7 @@ public record ModelEntry(String id, String api, String baseUrl, String authentic
         require("api-key".equals(authentication) || "bearer-token".equals(authentication),
                 where + "authentication must be api-key or bearer-token.");
         require(secretEnv != null && VARIABLE.matcher(secretEnv).matches(),
-                where + "secret-env must be the name of an environment variable, such as FACTORY_ZAI_API_KEY.");
+                where + "secret-env must be the name of an environment variable, such as FACTORY_ANTHROPIC_API_KEY.");
         try {
             Model.origin(baseUrl);
         } catch (IllegalArgumentException e) {

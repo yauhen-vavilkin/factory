@@ -30,7 +30,7 @@ class RunContextTest {
 
         assertThat(run.crumb()).isEqualTo("Run 1");
         assertThat(run.pageTitle()).isEqualTo("MODBAR-1 · run 1");
-        assertThat(run.settings()).isEqualTo("glm-5.3 · max");
+        assertThat(run.settings()).isEqualTo("example-large · max");
         assertThat(run.status().chipLabel()).isEqualTo("Failed");
         assertThat(run.failure().headline()).isEqualTo("Run 1 failed");
         assertThat(run.failureNote()).isEqualTo("No pull request was created.");
@@ -97,7 +97,7 @@ class RunContextTest {
                 TaskAttempt.AdmittedVia.MANUAL, state, null, reason,
                 state == TaskAttempt.State.PR_READY ? PR : null, draftReasons, executionId,
                 Instant.parse("2026-11-10T17:48:00Z"), Instant.parse("2026-11-10T17:48:00Z"), true, 600, usage(),
-                "{\"profileId\":\"glm-5.3\",\"effort\":\"max\"}");
+                "{\"profileId\":\"example-large\",\"effort\":\"max\"}");
     }
 
     private static TaskUsage usage() {

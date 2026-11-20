@@ -67,8 +67,8 @@ class DeveloperPreflightTest {
     private static final ModelPrice PRICE = new ModelPrice("USD", LocalDate.of(2026, 10, 22),
             URI.create("https://pricing.fixture.invalid"), BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, null, null,
             BigDecimal.ONE);
-    private static final ModelEntry GLM = new ModelEntry("glm-5.3", "anthropic-messages",
-            "https://api.z.ai/api/anthropic", "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3",
+    private static final ModelEntry EXAMPLE = new ModelEntry("example-large", "anthropic-messages",
+            "https://api.example.com/anthropic", "bearer-token", "FACTORY_EXAMPLE_API_KEY", "example-large",
             List.of("low", "high", "max"), "max", null, null, null);
 
     private final CodingRuntime coding = mock(CodingRuntime.class);
@@ -79,7 +79,7 @@ class DeveloperPreflightTest {
     private final GitHubProperties github = new GitHubProperties("", "github-fixture-secret");
     private DevRuntimeProperties settings;
     private DevFactoryProperties repositories;
-    /** The default model; the other model of the file is {@link #GLM}. */
+    /** The default model; the other model of the file is {@link #EXAMPLE}. */
     private ModelEntry defaultModel;
     private Map<String, String> secrets;
 
@@ -144,16 +144,16 @@ class DeveloperPreflightTest {
 
     @Test
     void aTaskRunIsCheckedWithItsOwnModelSoABrokenDefaultDoesNotBlockIt() throws Exception {
-        secrets = Map.of("FACTORY_ZAI_API_KEY", "zai-fixture-secret");
+        secrets = Map.of("FACTORY_EXAMPLE_API_KEY", "example-fixture-secret");
         var service = serviceWithClaudeCode();
         var payload = JSON.readTree("{\"issueKey\":\"TASK-1\"}");
 
-        assertThatCode(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("glm-5.3", "max", null),
+        assertThatCode(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("example-large", "max", null),
                 () -> {
                     service.requireReady("dev-factory", payload);
                     return null;
                 })).doesNotThrowAnyException();
-        verify(probe).gatewayReachable(URI.create("https://api.z.ai/api/anthropic"));
+        verify(probe).gatewayReachable(URI.create("https://api.example.com/anthropic"));
         // A run that uses the broken default, or a model that is gone, stops alone with a plain reason.
         assertThatThrownBy(() -> service.requireReady("dev-factory", payload))
                 .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
@@ -171,7 +171,7 @@ class DeveloperPreflightTest {
     void theConfigurationPageListsEveryModelWithItsOwnChecks() {
         var report = serviceWithClaudeCode().check(null);
 
-        assertThat(report.models()).extracting(ModelChecks.ModelRow::id).containsExactly("fixture", "glm-5.3");
+        assertThat(report.models()).extracting(ModelChecks.ModelRow::id).containsExactly("fixture", "example-large");
         var fixture = report.models().getFirst();
         assertThat(fixture.defaultModel()).isTrue();
         assertThat(fixture.ready()).isTrue();
@@ -181,22 +181,22 @@ class DeveloperPreflightTest {
                 .containsEntry("secret", PASS).containsEntry("endpoint", PASS).containsEntry("price", PASS);
         assertThat(fixture.summary()).startsWith("default · gateway.fixture.invalid:4001 · effort ")
                 .contains(" · price from ");
-        var glm = report.models().get(1);
-        assertThat(glm.defaultModel()).isFalse();
-        assertThat(glm.ready()).isFalse();
-        assertThat(glm.efforts()).isEqualTo("low, high, max; default max");
-        assertThat(glm.endpointOrigin()).isEqualTo("https://api.z.ai");
-        assertThat(glm.summary()).isEqualTo("api.z.ai · effort low, high, max · no price");
+        var example = report.models().get(1);
+        assertThat(example.defaultModel()).isFalse();
+        assertThat(example.ready()).isFalse();
+        assertThat(example.efforts()).isEqualTo("low, high, max; default max");
+        assertThat(example.endpointOrigin()).isEqualTo("https://api.example.com");
+        assertThat(example.summary()).isEqualTo("api.example.com · effort low, high, max · no price");
         // A model that cannot run gets no TCP probe; its failing checks say the fix.
-        assertThat(checks(glm)).containsEntry("secret", FAIL).doesNotContainKey("endpoint")
+        assertThat(checks(example)).containsEntry("secret", FAIL).doesNotContainKey("endpoint")
                 .containsEntry("price", WARN).containsEntry("efforts", PASS);
-        assertThat(glm.checks()).filteredOn(check -> check.status() != PASS)
+        assertThat(example.checks()).filteredOn(check -> check.status() != PASS)
                 .extracting(DeveloperPreflight.Check::message).containsExactly(
-                        "FACTORY_ZAI_API_KEY is empty. Set it in .env. If docker-compose.yml does not pass it to the"
-                                + " factory service yet, add it there. Then run docker compose up -d.",
+                        "FACTORY_EXAMPLE_API_KEY is empty. Set it in .env. If docker-compose.yml does not pass it to"
+                                + " the factory service yet, add it there. Then run docker compose up -d.",
                         "No price, so the cost of its runs shows as unknown. To see costs, add a price to this"
                                 + " model in config/developer-models.yaml.");
-        verify(probe, never()).gatewayReachable(URI.create("https://api.z.ai"));
+        verify(probe, never()).gatewayReachable(URI.create("https://api.example.com"));
         assertThat(JSON.writeValueAsString(report)).doesNotContain("coding-fixture-secret");
     }
 
@@ -570,7 +570,7 @@ class DeveloperPreflightTest {
     }
 
     private ModelCatalog models() {
-        return new ModelCatalog(new ModelCatalog.Properties(List.of(defaultModel, GLM), null),
+        return new ModelCatalog(new ModelCatalog.Properties(List.of(defaultModel, EXAMPLE), null),
                 settings.coding().runtime(), secrets::get);
     }
 

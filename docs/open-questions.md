@@ -21,8 +21,8 @@ Source: manual run review, 2026-10-27 (commit c068793).
   could send the secret elsewhere, so it stays off. So item 12 of the developer flow fixes
   (the agent follows the repository's own instructions; spec in commit 82e0d0d) is met only
   partly: the CLI does not load the files, and a prompt line asks the agent to read and
-  follow them, which the agent can skip (in the GLM-5.3 run of MGRAPPS-120 on 2026-10-28 it
-  read `AGENTS.md` as its first step). The prompt is shared, so Pi prompts got this line
+  follow them, which the agent can skip (in a run of MGRAPPS-120 with a non-Anthropic model on
+  2026-10-28 it read `AGENTS.md` as its first step). The prompt is shared, so Pi prompts got this line
   too (and, as the spec asks, the "Factory's rules win" line and the operator instructions
   block). Option: Factory reads `CLAUDE.md`, or `AGENTS.md` when there is none, from the
   frozen workspace and passes it in itself (`--append-system-prompt` or a titled prompt
@@ -30,10 +30,12 @@ Source: manual run review, 2026-10-27 (commit c068793).
 - **Reading Confluence pages.** The ADR-0013 wiki page is 2 MB of HTML; WebFetch cuts it
   before the content. The REST URL `/wiki/rest/api/content/<id>?expand=body.storage` is
   34 KB and works with both WebFetch and `curl`. Decide whether to tell the agent this.
-- **Effort per model.** GLM-5.3 accepts `low`, `high`, `max` (z.ai default and advice for
-  code: `max`); Claude Code sends `high` when no `--effort` is given. Measure `high` against
-  `max` on real coding tasks. Levels for `glm-5.3-flash` are not documented; measure them.
-- **Turn and time limits.** On GLM-5.3, 40 turns ran out during research (MGRAPPS-120).
+- **Effort per model.** A non-Anthropic model that Factory ran accepts `low`, `high`, `max` (its
+  provider's default and advice for code: `max`); Claude Code sends `high` when no `--effort` is
+  given. Measure `high` against `max` on real coding tasks. The levels of the cheaper model of the
+  same provider are not documented; measure them.
+- **Turn and time limits.** With a non-Anthropic model, 40 turns ran out during research
+  (MGRAPPS-120).
   A run with 100 turns wrote the file after 17 minutes.
 - **Task wording.** MGRAPPS-120 asks for values from the "bugfest environment baseline",
   which the agent cannot reach, so it searches other repositories for a long time. The
@@ -45,14 +47,14 @@ Source: manual run review, 2026-10-27 (commit c068793).
 
 ## Seen in live runs, not fixed
 
-Source: GLM runs of MGRAPPS-120 on 2026-10-27.
+Source: runs of MGRAPPS-120 with a non-Anthropic model on 2026-10-27.
 
 - `task_attempt.state` stays `QUEUED` while the attempt runs: no code sets `RUNNING`.
   The UI shows "Working" from the execution instead.
 - After an attempt stops, the execution page still shows "Verify changes" and
   "Create pull request" as "Waiting", while the engine status is `COMPLETED`.
 - `dev_coding_outcome.json` keeps the CLI's own cost estimate, which prices unknown models
-  at Opus rates ($0.84 where the real GLM cost is $0.32). The UI uses Factory's rate card.
+  at Opus rates ($0.84 where the real cost with the model of the run is $0.32). The UI uses Factory's rate card.
 - The legacy `FACTORY_MODEL_*` and `FACTORY_DEV_FACTORY_CODING_IMAGE` settings were removed on
   2026-10-31 (Developer Flow cleanup, phase 1). An `.env` that still sets them gets no warning. With
   the Pi runtime and only legacy values, Pi is "not configured" and preflight says so. With a mix
@@ -143,7 +145,7 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
 - **Entries that never ran.** CodeMie Opus 5.5, CodeMie Haiku 5.5 and the Anthropic-direct
   Sonnet 5.5 entry have not run a task yet (no paid runs). "Ready" on the run form only means
   that the secret is set.
-- **Coding timeout.** The GLM-5.3 run of MGRAPPS-21 on 2026-11-03 (effort high) opened its draft
+- **Coding timeout.** A run of MGRAPPS-21 with a non-Anthropic model on 2026-11-03 (effort high) opened its draft
   PR after 29 minutes, one minute before the 30-minute coding timeout
   (`FACTORY_DEV_FACTORY_TIMEOUT_SECONDS`). The default is 60 minutes since 2026-11-15, and a
   whole attempt may take 120 minutes; whether that is enough for a normal task is not measured.
@@ -223,7 +225,7 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 ## Left after the console polish of the run page (2026-11-11)
 
 - **Pricing in Technical details is not a link.** The rate cards name a source and a date
-  (`docs.z.ai (2026-09-19)`) but no URL, so the page writes them as text. A link needs a `url`
+  (a host name and `(2026-09-19)`) but no URL, so the page writes them as text. A link needs a `url`
   per rate in `config/developer-models.yaml`.
 - **Artifacts (N) cannot link to a filtered list.** `/artifacts` has no `executionId` filter, so
   the run page lists the versions of each artifact in a disclosure instead of linking out.
@@ -364,7 +366,7 @@ Developer Flow:
 - **Phone width (390 px).** My tasks cuts a long reason after two lines (80033, 80036 in the demo
   console); a reason on its own line under the key starts 10 px in; the repository table of the
   Configuration tab is wider than its box (456 against 350 px). The "In progress" strip has no room
-  for the task title (it shrinks to nothing) and cuts "glm-5.3 · max · 14 min".
+  for the task title (it shrinks to nothing) and cuts "codemie-sonnet-5.5 · max · 14 min".
 - **The "In progress" strip shows only on the page of My tasks that lists the running task.**
   `RunRows.strip` reads the rows of the current page, so with two pages of Started tasks the strip can
   be missing from page 1 (seen in the demo console, where MODBAR-805 is on page 2).
@@ -425,12 +427,12 @@ findings are in the commits of that day.
   code; the pages were checked in the demo console instead. To run it:
   1. In `.env`, remove or raise `FACTORY_CLAUDE_CODE_MAX_TURNS=200` and
      `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS=1800` and any explicit `FACTORY_TASKS_EXECUTION_DEADLINE` or
-     `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS`, or the old limits win; check that `FACTORY_ZAI_API_KEY` is set.
+     `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS`, or the old limits win; check that the secret of the model you run is set.
   2. On the merged code: `docker compose up -d --build`, `docker compose ps -a`,
      `curl --fail localhost:8080/actuator/health`.
-  3. On the Configuration tab check the limits (1 h, 2 h, 400), that glm-5.3-flash is ready to run, and
+  3. On the Configuration tab check the limits (1 h, 2 h, 400), that the model you chose is ready to run, and
      Check one task with the chosen key.
-  4. On My tasks set the Model to glm-5.3-flash, select the task and press Run; wait 20 to 60 minutes
+  4. On My tasks set the Model to the model you chose, select the task and press Run; wait 20 to 60 minutes
      for the pull request.
   5. Leave a review comment on the pull request; on the run page press Check PR comments, then Fix 1
      comment, and check that the round pushes a commit.

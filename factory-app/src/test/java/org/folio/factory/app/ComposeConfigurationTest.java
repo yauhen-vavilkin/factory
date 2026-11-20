@@ -102,7 +102,6 @@ class ComposeConfigurationTest {
         assertThat(config.path("services").path("coding-runtime").path("image").asString())
                 .startsWith("factory-dev-claude-code:");
         // Unset values arrive empty, which Factory treats as unset: the first model and "not configured".
-        assertThat(environment.path("FACTORY_ZAI_API_KEY").asString()).isEmpty();
         assertThat(environment.path("FACTORY_ANTHROPIC_API_KEY").asString()).isEmpty();
         assertThat(environment.path("FACTORY_DEV_FACTORY_DEFAULT_MODEL").asString()).isEmpty();
     }
@@ -174,12 +173,12 @@ class ComposeConfigurationTest {
         Path models = fixture.resolve("my-models.yaml");
         Files.writeString(models, "factory: {}\n");
         var factory = render(Map.of("FACTORY_DEV_FACTORY_MODELS_FILE", models.toString(),
-                "FACTORY_ZAI_API_KEY", "fixture-zai-key", "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "glm-5.3"),
-                Map.of()).path("services").path("factory");
+                "FACTORY_ANTHROPIC_API_KEY", "fixture-anthropic-key", "FACTORY_DEV_FACTORY_DEFAULT_MODEL",
+                "anthropic-sonnet-5.5"), Map.of()).path("services").path("factory");
         var environment = factory.path("environment");
 
-        assertEnvironmentContains(environment, Map.of("FACTORY_ZAI_API_KEY", "fixture-zai-key",
-                "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "glm-5.3"));
+        assertEnvironmentContains(environment, Map.of("FACTORY_ANTHROPIC_API_KEY", "fixture-anthropic-key",
+                "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "anthropic-sonnet-5.5"));
         assertThat(environment.path("SPRING_CONFIG_IMPORT").asString())
                 .contains("classpath:developer-models.yaml,file:" + MODELS_MOUNT);
         assertThat(requireVolume(factory, MODELS_MOUNT).path("source").asString()).isEqualTo(models.toString());

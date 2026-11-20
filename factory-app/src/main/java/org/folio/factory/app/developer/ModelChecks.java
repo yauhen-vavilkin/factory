@@ -69,7 +69,10 @@ public class ModelChecks {
         return List.copyOf(checks);
     }
 
-    /** "default · api.z.ai · effort low, high, max · price from docs.z.ai, 2026-09-19". */
+    /**
+     * "default · host.docker.internal:4001 · effort low, medium, high, xhigh, max · price from platform.claude.com,
+     * 2026-11-03".
+     */
     private static String summary(Model model, boolean defaultModel) {
         var parts = new ArrayList<String>();
         if (defaultModel) {

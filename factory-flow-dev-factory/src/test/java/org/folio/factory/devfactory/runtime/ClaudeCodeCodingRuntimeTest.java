@@ -111,23 +111,24 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void aRunUsesTheModelItsSettingsNameAndEverySecretIsRedacted() throws Exception {
         var runtime = runtime("bearer-token");
-        var settings = new CodingRequest.RunSettings("glm-5.3", "low", "Use the wiki REST URL.");
+        var settings = new CodingRequest.RunSettings("example-large", "low", "Use the wiki REST URL.");
         var workload = workload();
         doAnswer(call -> {
             String environment = Files.readString(Path.of((String) call.getArgument(0)).resolve("environment"));
-            assertThat(environment).contains("ANTHROPIC_BASE_URL='https://api.z.ai/api/anthropic'",
-                    "ANTHROPIC_AUTH_TOKEN='zai-secret'", "ANTHROPIC_DEFAULT_MODEL='glm-5.3'",
+            assertThat(environment).contains("ANTHROPIC_BASE_URL='https://api.example.com/anthropic'",
+                    "ANTHROPIC_AUTH_TOKEN='example-secret'", "ANTHROPIC_DEFAULT_MODEL='example-large'",
                     "CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192").doesNotContain("secret-token", "gateway.example");
             return null;
         }).when(workload).copy(anyString(), eq("/tmp/factory-claude"));
         when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any())).thenAnswer(call -> {
             List<String> argv = call.getArgument(0);
-            assertThat(argv).containsSubsequence("--model", "glm-5.3", "--max-turns", "10", "--effort", "low")
-                    .doesNotContain("zai-secret", "custom/Model-1");
+            assertThat(argv)
+                    .containsSubsequence("--model", "example-large", "--max-turns", "10", "--effort", "low")
+                    .doesNotContain("example-secret", "custom/Model-1");
             UnaryOperator<String> redactor = call.getArgument(3);
-            assertThat(redactor.apply("zai-secret secret-key secret-token"))
+            assertThat(redactor.apply("example-secret secret-key secret-token"))
                     .isEqualTo("[REDACTED] [REDACTED] [REDACTED]");
-            return feed(call.getArgument(4), INIT.replace("custom/Model-1", "glm-5.3") + RESULT, 0, "");
+            return feed(call.getArgument(4), INIT.replace("custom/Model-1", "example-large") + RESULT, 0, "");
         });
         var base = request();
         var request = new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),
@@ -137,9 +138,10 @@ class ClaudeCodeCodingRuntimeTest {
         var outcome = runtime.code(workload, request, 60, event -> {}, CodingTranscripts.NONE);
 
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
-        assertThat(runtime.identity(settings)).containsEntry("modelId", "glm-5.3").containsEntry("model", "glm-5.3")
+        assertThat(runtime.identity(settings)).containsEntry("modelId", "example-large")
+                .containsEntry("model", "example-large")
                 .containsEntry("effort", "low").containsEntry("maxTurns", 10)
-                .doesNotContainKey("baseUrl").doesNotContainValue("zai-secret");
+                .doesNotContainKey("baseUrl").doesNotContainValue("example-secret");
     }
 
     @Test
@@ -149,11 +151,12 @@ class ClaudeCodeCodingRuntimeTest {
         assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("gone", null, null)))
                 .isInstanceOf(ModelCatalog.ModelException.class)
                 .hasMessageContaining("model gone").hasMessageContaining("config/developer-models.yaml");
-        assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("glm-5.3", null, null)))
+        assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("example-large", null,
+                null)))
                 .isInstanceOf(ModelCatalog.ModelException.class)
-                .hasMessage("Model glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml"
-                        + " does not pass FACTORY_ZAI_API_KEY to the factory service yet, add it there. Then run"
-                        + " docker compose up -d again.");
+                .hasMessage("Model example-large is not configured: set FACTORY_EXAMPLE_API_KEY in .env. If"
+                        + " docker-compose.yml does not pass FACTORY_EXAMPLE_API_KEY to the factory service yet, add it"
+                        + " there. Then run docker compose up -d again.");
         // A model without its secret does not stop runs with the default model.
         runtime.requireConfigured(null);
         assertThat(runtime.identity(new CodingRequest.RunSettings("gone", null, null)))
@@ -753,9 +756,9 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void aPatchIsCheckedForEveryModelSecretOfSixteenOrMoreCharacters() {
         var runtime = runtime(null, "http://gateway.example/anthropic", "custom/Model-1", "api-key", 10,
-                "zai-0123456789abcdef");
+                "example-0123456789abcdef");
 
-        assertThat(runtime.holdsSecret("token: zai-0123456789abcdef")).isTrue();
+        assertThat(runtime.holdsSecret("token: example-0123456789abcdef")).isTrue();
         // secret-key and secret-token are too short to be told apart from ordinary code.
         assertThat(runtime.holdsSecret("secret-key secret-token")).isFalse();
     }
@@ -766,33 +769,35 @@ class ClaudeCodeCodingRuntimeTest {
     }
 
     static ClaudeCodeCodingRuntime runtime(String authentication) {
-        return runtime(null, "http://gateway.example/anthropic", "custom/Model-1", authentication, 10, "zai-secret");
+        return runtime(null, "http://gateway.example/anthropic", "custom/Model-1", authentication, 10,
+                "example-secret");
     }
 
     /**
      * A runtime whose default model "gateway" sits at {@code baseUrl}: its secret is secret-key with api-key
      * authentication and secret-token with a bearer token. A second gateway model holds the other secret, and
-     * glm-5.3 a third one; every secret in the file is redacted.
+     * example-large a third one; every secret in the file is redacted.
      */
     static ClaudeCodeCodingRuntime runtime(String image, String baseUrl, String model, String authentication,
-                                           int maxTurns, String zaiSecret) {
-        return runtime(image, baseUrl, model, authentication, maxTurns, zaiSecret, false);
+                                           int maxTurns, String exampleSecret) {
+        return runtime(image, baseUrl, model, authentication, maxTurns, exampleSecret, false);
     }
 
     /** {@code images}: the default model reads images. */
     static ClaudeCodeCodingRuntime runtime(String image, String baseUrl, String model, String authentication,
-                                           int maxTurns, String zaiSecret, boolean images) {
+                                           int maxTurns, String exampleSecret, boolean images) {
         var apiKey = "api-key".equals(authentication);
         var gateway = new ModelEntry("gateway", "anthropic-messages", baseUrl, authentication,
                 apiKey ? "GATEWAY_KEY" : "GATEWAY_TOKEN", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null,
                 images ? Boolean.TRUE : null);
         var other = new ModelEntry("gateway-other", "anthropic-messages", baseUrl, apiKey ? "bearer-token" : "api-key",
                 apiKey ? "GATEWAY_TOKEN" : "GATEWAY_KEY", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null, null);
-        var glm = new ModelEntry("glm-5.3", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
-                "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 8192, null, null);
+        var example = new ModelEntry("example-large", "anthropic-messages", "https://api.example.com/anthropic",
+                "bearer-token", "FACTORY_EXAMPLE_API_KEY", "example-large", List.of("low", "high", "max"), "max", 8192,
+                null, null);
         var secrets = Map.of("GATEWAY_KEY", "secret-key", "GATEWAY_TOKEN", "secret-token",
-                "FACTORY_ZAI_API_KEY", zaiSecret);
-        var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(gateway, other, glm), null),
+                "FACTORY_EXAMPLE_API_KEY", exampleSecret);
+        var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(gateway, other, example), null),
                 "claude-code", secrets::get);
         return new ClaudeCodeCodingRuntime(new DevRuntimeProperties.ClaudeCode(image, maxTurns), catalog);
     }

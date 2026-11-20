@@ -9,7 +9,7 @@
 # authentication     api-key or bearer-token
 # secret-env         the .env variable that holds the secret; never put the secret in this file.
 #                    Compose passes only the variables it lists to Factory: for a new variable, also
-#                    add it to the factory service in docker-compose.yml, next to FACTORY_ZAI_API_KEY.
+#                    add it to the factory service in docker-compose.yml, next to FACTORY_ANTHROPIC_API_KEY.
 # model              the model string the endpoint expects
 # efforts            the model's effort levels; default-effort is one of them
 # max-output-tokens  optional, 16384 when left out
@@ -96,37 +96,6 @@ factory:
           cache-write-5m-per-million: 2.50
           cache-write-1h-per-million: 4.00
           output-per-million: 10.00
-      # Z.ai GLM. Runs started before 2026-11-03 name these ids, so keep them.
-      - id: glm-5.3
-        api: anthropic-messages
-        base-url: https://api.z.ai/api/anthropic
-        authentication: bearer-token
-        secret-env: FACTORY_ZAI_API_KEY
-        model: glm-5.3
-        efforts: [low, high, max]
-        default-effort: max
-        price:
-          currency: USD
-          as-of: 2026-09-19
-          source: https://docs.z.ai/guides/overview/pricing
-          input-per-million: 1.40
-          cache-read-per-million: 0.26
-          output-per-million: 4.40
-      - id: glm-5.3-flash
-        api: anthropic-messages
-        base-url: https://api.z.ai/api/anthropic
-        authentication: bearer-token
-        secret-env: FACTORY_ZAI_API_KEY
-        model: glm-5.3-flash
-        efforts: [low, high, max]
-        default-effort: max
-        price:
-          currency: USD
-          as-of: 2026-09-19
-          source: https://docs.z.ai/guides/overview/pricing
-          input-per-million: 0.15
-          cache-read-per-million: 0.03
-          output-per-million: 0.50
       # Models for the Pi harness through CodeMie. Pi still takes its model and reasoning level
       # from FACTORY_PI_*; it uses these entries for the price only.
       # Public Google Standard API list price, not the CodeMie organization's bill.

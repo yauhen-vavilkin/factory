@@ -233,7 +233,7 @@ class RunStatusCardTest {
 
     private static RunContext context(AttemptStatus status, String answerUrl, String retryUrl) {
         return new RunContext(TASK_ID, "MODBAR-1", "Fix the bar", "https://jira.example.org/browse/MODBAR-1", 1,
-                "glm-5.3 · max", status, null, null, answerUrl, retryUrl == null ? null : "Start run 2",
+                "example-large · max", status, null, null, answerUrl, retryUrl == null ? null : "Start run 2",
                 retryUrl, null, false, "mod-bar", null);
     }
 

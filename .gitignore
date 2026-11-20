@@ -16,6 +16,10 @@ target/
 # local credentials
 .env
 
+# local model and Compose overrides
+/local/
+docker-compose.override.yml
+
 # local AI agent tooling state (never shared)
 /.claude/
 /.superpowers/

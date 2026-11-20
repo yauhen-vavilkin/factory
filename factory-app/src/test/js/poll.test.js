@@ -260,7 +260,7 @@ test('Effort offers the chosen model levels and a model change keeps only a leve
   const toggles = [untouched, pickedLow, pickedMedium];
   const select = { selectedIndex: 0, addEventListener(event, callback) { this.change = callback; },
     setAttribute(key, value) { this[key] = value; },
-    options: [option('codemie-sonnet-5.5', five.join(' '), 'high'), option('glm-5.3', 'low high max', 'max')],
+    options: [option('codemie-sonnet-5.5', five.join(' '), 'high'), option('example-large', 'low high max', 'max')],
     form: { querySelectorAll: selector => selector === '[data-effort-toggle]' ? toggles : [] } };
   let ready;
   vm.runInNewContext(POLL_JS, {

@@ -16,8 +16,8 @@
                         th:text="'(' + ${#lists.size(config.models().ready())} + ')'">(1)</span></h3>
                 <div class="dev-row" th:each="model : ${config.models().ready()}">
                     <div class="dev-row-main">
-                        <div class="config-name" th:text="${model.id()}">glm-5.3</div>
-                        <div class="config-detail" th:text="${model.summary()}">default · api.z.ai</div>
+                        <div class="config-name" th:text="${model.id()}">codemie-sonnet-5.5</div>
+                        <div class="config-detail" th:text="${model.summary()}">default · host.docker.internal:4001</div>
                         <p class="config-warning" th:each="warning : ${model.warnings()}" th:text="${warning}">No price.</p>
                     </div>
                 </div>

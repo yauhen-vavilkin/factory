@@ -72,16 +72,15 @@ class CodingRuntimeConfigurationTest {
     @Test
     void theDefaultModelComesFromEnvAndNeedsOnlyItsOwnSecret() throws Exception {
         var setup = setup(Map.of(
-                "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "glm-5.3",
-                "FACTORY_ZAI_API_KEY", "token",
+                "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "anthropic-sonnet-5.5",
+                "FACTORY_ANTHROPIC_API_KEY", "token",
                 "FACTORY_CODEMIE_PROXY_TOKEN", "",
                 "FACTORY_CLAUDE_CODE_MAX_TURNS", "120"));
 
         setup.runtime().requireConfigured(null);
-        assertThat(setup.runtime().identity(null)).containsEntry("modelId", "glm-5.3")
-                .containsEntry("model", "glm-5.3").containsEntry("maxTurns", 120);
-        assertThat(setup.models().ready()).extracting(model -> model.id()).containsExactly("glm-5.3",
-                "glm-5.3-flash");
+        assertThat(setup.runtime().identity(null)).containsEntry("modelId", "anthropic-sonnet-5.5")
+                .containsEntry("model", "claude-sonnet-5-5").containsEntry("maxTurns", 120);
+        assertThat(setup.models().ready()).extracting(model -> model.id()).containsExactly("anthropic-sonnet-5.5");
         assertThat(setup.properties().coding().pi().apiKey()).isBlank();
     }
 

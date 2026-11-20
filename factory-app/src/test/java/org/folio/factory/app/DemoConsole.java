@@ -82,7 +82,6 @@ import java.util.UUID;
 @TestPropertySource(properties = {
         "factory.connectors.jira.base-url=https://jira.example.org",
         "factory.tasks.source.assignee=Jane Developer",
-        "FACTORY_ZAI_API_KEY=demo-console-key",
         // Templates, CSS and JS come from src without a cache: an edit shows on reload, and a Maven build that
         // rewrites target/classes does not touch them.
         "spring.thymeleaf.prefix=file:src/main/resources/templates/",
@@ -99,9 +98,9 @@ class DemoConsole {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     /** The model and effort of each seeded run, in turn. */
     private static final List<CodingRequest.RunSettings> RUNS = List.of(
-            new CodingRequest.RunSettings("glm-5.3", "max", null),
-            new CodingRequest.RunSettings("glm-5.3-flash", "high", null),
-            new CodingRequest.RunSettings("glm-5.3", "low", null));
+            new CodingRequest.RunSettings("codemie-haiku-5.5", "max", null),
+            new CodingRequest.RunSettings("codemie-opus-5.5", "high", null),
+            new CodingRequest.RunSettings("codemie-haiku-5.5", "low", null));
 
     @Autowired
     private PipelineExecutionRepository executions;

@@ -157,10 +157,11 @@ class TaskUiControllerTest {
         var sonnet = new ModelEntry("codemie-sonnet-5.5", "anthropic-messages", "http://gateway.example:4001",
                 "bearer-token", "FACTORY_CODEMIE_PROXY_TOKEN", "claude-sonnet-5-5",
                 List.of("low", "medium", "high", "xhigh", "max"), "high", null, null, null);
-        var glm = new ModelEntry("glm-5.3", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
-                "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", null, null, null);
-        var secrets = Map.of("FACTORY_CODEMIE_PROXY_TOKEN", "gateway-token", "FACTORY_ZAI_API_KEY", "zai-key");
-        runSettings = new TaskRunSettings(coding, new ModelCatalog(new ModelCatalog.Properties(List.of(sonnet, glm),
+        var example = new ModelEntry("example-large", "anthropic-messages", "https://api.example.com/anthropic",
+                "bearer-token", "FACTORY_EXAMPLE_API_KEY", "example-large", List.of("low", "high", "max"), "max", null,
+                null, null);
+        var secrets = Map.of("FACTORY_CODEMIE_PROXY_TOKEN", "gateway-token", "FACTORY_EXAMPLE_API_KEY", "example-key");
+        runSettings = new TaskRunSettings(coding, new ModelCatalog(new ModelCatalog.Properties(List.of(sonnet, example),
                 null), "claude-code", secrets::get));
         var repositories = new DevFactoryProperties("https://github.com", new TreeMap<>(Map.of("mod-bar",
                 new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
@@ -247,7 +248,7 @@ class TaskUiControllerTest {
         assertThat(source.searchUrl()).startsWith("https://jira.example.org/issues/?jql=");
         var runForm = (TaskRunSettings.Form) model.get("runForm");
         assertThat(runForm.models()).extracting(TaskRunSettings.ModelOption::id)
-                .containsExactly("codemie-sonnet-5.5", "glm-5.3");
+                .containsExactly("codemie-sonnet-5.5", "example-large");
         assertThat(runForm.selected().id()).isEqualTo("codemie-sonnet-5.5");
         assertThat(runForm.effort()).isEqualTo("high");
     }
@@ -305,21 +306,21 @@ class TaskUiControllerTest {
     void myTasks_showsTheRunningTaskInTheStripAndItsRowIsNotYourTurn() throws Exception {
         TaskView running = taskView(TASK_ID, "MODBAR-931", "Open", TaskView.TaskState.WORKING, false, false,
                 attempt("RUNNING", "MANUAL", 1,
-                        "{\"profileId\":\"glm-5.3\",\"effort\":\"max\"}"));
+                        "{\"profileId\":\"example-large\",\"effort\":\"max\"}"));
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), running));
 
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
 
         var strip = (InProgressStrip) model.get("inProgress");
         assertThat(strip.key()).isEqualTo("MODBAR-931");
-        assertThat(strip.run()).startsWith("glm-5.3 · max · ");
+        assertThat(strip.run()).startsWith("example-large · max · ");
         assertThat(strip.runUrl()).isEqualTo("/executions/" + EXECUTION_ID);
         assertThat(rows(model, "triggered").getFirst())
                 .containsEntry("chipLabel", "In progress")
                 .containsEntry("chipClass", "chip chip-info")
                 .containsEntry("detail", null)
                 // An attempt in flight says which one it is, and no time: the strip above has it.
-                .containsEntry("facts", List.of("glm-5.3 · max", "run 1"))
+                .containsEntry("facts", List.of("example-large · max", "run 1"))
                 .containsEntry("action", RunAction.OPEN_RUN)
                 .containsEntry("button", null);
         assertThat(RunAction.OPEN_RUN.yours()).isFalse();
@@ -329,13 +330,13 @@ class TaskUiControllerTest {
     void myTasks_aTaskThatRestsSaysItsAttemptsAndTheTimeTheAgentWorkedInAllOfThem() throws Exception {
         TaskView stopped = taskView(TASK_ID, "MODBAR-951", "Open", TaskView.TaskState.STOPPED, false, true,
                 attempt("STOPPED", "MANUAL", 1),
-                retryAttempt(2, "{\"profileId\":\"glm-5.3\",\"effort\":\"max\"}"));
+                retryAttempt(2, "{\"profileId\":\"example-large\",\"effort\":\"max\"}"));
 
         var row = rows(myTasksModel(stopped), "triggered").getFirst();
 
         // The model of the latest attempt, and 10 minutes in each of the two attempts.
         assertThat(row)
-                .containsEntry("facts", List.of("glm-5.3 · max", "2 runs", "20 min"))
+                .containsEntry("facts", List.of("example-large · max", "2 runs", "20 min"))
                 .containsEntry("button", new TriggeredRow.Button("Start run 3", "/tasks/" + TASK_ID + "#retry"));
     }
 
@@ -769,8 +770,9 @@ class TaskUiControllerTest {
 
     @Test
     void taskDetail_retryFormStartsFromTheDefaultsWithAnEmptyTextField() throws Exception {
-        String previous = "{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\",\"model\":\"glm-5.3\","
-                + "\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\",\"maxTurns\":77,"
+        String previous = "{\"profileId\":\"example-large\",\"profileLabel\":\"Example Large (Example)\","
+                + "\"model\":\"example-large\","
+                + "\"endpointOrigin\":\"https://api.example.com\",\"effort\":\"low\",\"maxTurns\":77,"
                 + "\"instructions\":\"Keep the public API.\"}";
         when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", "Open",
                 TaskView.TaskState.STOPPED, false, true,
@@ -788,14 +790,14 @@ class TaskUiControllerTest {
         // The row shows the settings, the time and the quote, which alone may be cut.
         assertThat(rows(model, "attempts")).extracting(row -> row.get("settings"),
                         row -> ((AttemptClock) row.get("clock")).time(), row -> row.get("quote"))
-                .containsExactly(tuple("glm-5.3 · low", "10 min", "\"Keep the public API.\""),
+                .containsExactly(tuple("example-large · low", "10 min", "\"Keep the public API.\""),
                         tuple(null, "10 min", null));
     }
 
     @Test
     void taskDetail_namesEachAttemptByHowItStarted() throws Exception {
-        var instructed = "{\"profileId\":\"glm-5.3\",\"effort\":\"max\",\"instructions\":\"Keep the API.\"}";
-        var answered = "{\"profileId\":\"glm-5.3\",\"effort\":\"max\","
+        var instructed = "{\"profileId\":\"example-large\",\"effort\":\"max\",\"instructions\":\"Keep the API.\"}";
+        var answered = "{\"profileId\":\"example-large\",\"effort\":\"max\","
                 + "\"instructions\":\"My answer to your question: The internal API\"}";
         when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", "Open",
                 TaskView.TaskState.STOPPED, false, true, attempt("STOPPED", "BY_KEY", 1), retryAttempt(2, null),
@@ -918,7 +920,7 @@ class TaskUiControllerTest {
 
         mvc.perform(post("/tasks/run-selected")
                         .param("taskId", TASK_ID.toString(), OTHER_TASK_ID.toString())
-                        .param("modelId", "glm-5.3")
+                        .param("modelId", "example-large")
                         .param("effort-" + TASK_ID, "low").param("effort-" + OTHER_TASK_ID, "max"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl(FLOW_PAGE));
@@ -926,22 +928,22 @@ class TaskUiControllerTest {
         verify(admissions).runSelected(runCaptor.capture());
         assertThat(runCaptor.getValue().selections())
                 .extracting(selection -> TaskRunSettings.settings(selection.runSettings()))
-                .containsExactly(new CodingRequest.RunSettings("glm-5.3", "low", null),
-                        new CodingRequest.RunSettings("glm-5.3", "max", null));
+                .containsExactly(new CodingRequest.RunSettings("example-large", "low", null),
+                        new CodingRequest.RunSettings("example-large", "max", null));
         assertThat(runCaptor.getValue().selections()).allSatisfy(selection ->
-                assertThat(selection.runSettings()).doesNotContain("zai-key"));
+                assertThat(selection.runSettings()).doesNotContain("example-key"));
     }
 
     @Test
     void runSelected_badRunSettingsAreRejectedWithAPlainMessage() throws Exception {
         MvcResult result = mvc.perform(post("/tasks/run-selected")
                         .param("taskId", TASK_ID.toString())
-                        .param("modelId", "glm-5.3").param("effort-" + TASK_ID, "medium"))
+                        .param("modelId", "example-large").param("effort-" + TASK_ID, "medium"))
                 .andExpect(status().is3xxRedirection())
                 .andReturn();
         assertThat(java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl(),
                 java.nio.charset.StandardCharsets.UTF_8))
-                .endsWith("Effort medium is not available for model glm-5.3. Choose one of: low, high, max.");
+                .endsWith("Effort medium is not available for model example-large. Choose one of: low, high, max.");
 
         result = mvc.perform(post("/tasks/run-selected")
                         .param("taskId", TASK_ID.toString()).param("modelId", "gone"))
@@ -1022,14 +1024,14 @@ class TaskUiControllerTest {
         when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(ATTEMPT_ID, null, TaskAttempt.State.RESERVED, "the retry joined the queue", false));
 
         mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "3")
-                        .param("modelId", "glm-5.3").param("effort", "max")
+                        .param("modelId", "example-large").param("effort", "max")
                         .param("instructions", "  Read the ADR through the wiki REST URL.  "))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/tasks/" + TASK_ID));
 
         verify(admissions).retry(retryCaptor.capture());
         assertThat(TaskRunSettings.settings(retryCaptor.getValue().runSettings())).isEqualTo(
-                new CodingRequest.RunSettings("glm-5.3", "max", "Read the ADR through the wiki REST URL."));
+                new CodingRequest.RunSettings("example-large", "max", "Read the ADR through the wiki REST URL."));
     }
 
     @Test
@@ -1099,7 +1101,7 @@ class TaskUiControllerTest {
                 TaskAttempt.State.RESERVED, "the retry joined the queue", false));
 
         mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "3")
-                        .param("modelId", "glm-5.3").param("effort", "max")
+                        .param("modelId", "example-large").param("effort", "max")
                         .param("answer", "1").param("note", "Keep the change small."))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/tasks/" + TASK_ID));
