@@ -181,8 +181,10 @@ final class FeedbackRows {
         if ("PASS".equals(verification.result())) {
             return verification.testCount() + " tests passed";
         }
-        var failures = verification.failureCount() == null ? 0 : verification.failureCount();
-        return verification.testCount() + " tests, " + failures + " failed";
+        // A Jest suite that fails to load counts as an error, so the line counts errors as checks() does.
+        var failed = Objects.requireNonNullElse(verification.failureCount(), 0)
+                + Objects.requireNonNullElse(verification.errorCount(), 0);
+        return verification.testCount() + " tests, " + failed + " failed";
     }
 
     /** "Checks passed: 300 tests." or "Checks failed: 2 of 300 tests failed."; null when no checks ran. */

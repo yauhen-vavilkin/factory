@@ -35,6 +35,29 @@ class StopReasonsTest {
     }
 
     @Test
+    void checksOfAYarnPlanWhoseInstallFailedOnTheAgentsChangesNameTheInstallAndYarnsError() {
+        var result = read("{\"state\":\"VERIFICATION_FAILED\",\"exitCode\":1,"
+                + "\"failureKind\":\"INSUFFICIENT_EVIDENCE\",\"testCount\":null}");
+        var output = "yarn install v1.22.22\\n[1/4] Resolving packages...\\nerror Your lockfile needs to be"
+                + " updated, but yarn was run with `--frozen-lockfile`.\\nTrusted verification produced no fresh"
+                + " executed Jest tests";
+
+        assertThat(StopReasons.ofResult(result, receipt("YARN", output)))
+                .isEqualTo("VERIFICATION_NOT_RUN: the dependency install of the agent's changes failed. Your"
+                        + " lockfile needs to be updated, but yarn was run with `--frozen-lockfile`. Start a new run"
+                        + " and tell the agent to update yarn.lock with every change to package.json and to use"
+                        + " only packages that the npm registry has.");
+        // Maven checks, an install that finished, and a run without a receipt keep today's reason.
+        assertThat(StopReasons.ofResult(result, receipt("MAVEN", output)))
+                .isEqualTo("VERIFICATION_NOT_RUN: no test reports were written");
+        assertThat(StopReasons.ofResult(result, receipt("YARN", "Done in 3s.\\nerror Command \\\"test\\\" not found.")))
+                .isEqualTo("VERIFICATION_NOT_RUN: no test reports were written");
+        assertThat(StopReasons.ofResult(result, read("{\"state\":\"NOT_RUN\"}")))
+                .isEqualTo("VERIFICATION_NOT_RUN: no test reports were written");
+        assertThat(StopReasons.ofResult(result)).isEqualTo("VERIFICATION_NOT_RUN: no test reports were written");
+    }
+
+    @Test
     void aResultWithItsOwnReasonKeepsItAndAPassedResultHasNone() {
         assertThat(StopReasons.ofResult(read("{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"No candidate\"}")))
                 .isEqualTo("DEVELOPMENT_FAILED: No candidate");
@@ -74,6 +97,11 @@ class StopReasonsTest {
                 .isEqualTo("Factory could not finish the step \"Create pull request\" after 3 tries: an unexpected"
                         + " error. Start a new run.");
         assertThat(StopReasons.engineGaveUp("publish", 3, "x".repeat(500))).hasSizeLessThan(400);
+    }
+
+    /** The parts of dev_verification.json that say which toolchain ran and what it printed. */
+    private static JsonNode receipt(String toolchain, String output) {
+        return read("{\"result\":\"FAIL\",\"toolchain\":\"" + toolchain + "\",\"output\":\"" + output + "\"}");
     }
 
     private static JsonNode read(String json) {

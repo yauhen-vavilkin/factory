@@ -4,11 +4,15 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.web.UiFormat;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
+import org.folio.factory.devfactory.runtime.Toolchain;
+import org.folio.factory.devfactory.runtime.YarnBaselineOutput;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.verification.VerificationFailure;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -38,12 +42,20 @@ public final class StopReasons {
      * from their counts and kind, or blank for a result that says nothing (also a passed one).
      */
     public static String ofResult(JsonNode result) {
+        return ofResult(result, JSON.createObjectNode());
+    }
+
+    /**
+     * {@link #ofResult(JsonNode)} with the verification receipt ({@code dev_verification.json}), whose output names
+     * the failed dependency install of a yarn plan that wrote no test report.
+     */
+    public static String ofResult(JsonNode result, JsonNode receipt) {
         var state = result.path("state").asString("");
         var reason = result.path("reason").asString("");
         if (!reason.isBlank()) {
             return state + ": " + reason;
         }
-        return CHECKS_FAILED.equals(state) ? checks(result) : "";
+        return CHECKS_FAILED.equals(state) ? checks(result, receipt) : "";
     }
 
     /**
@@ -85,7 +97,7 @@ public final class StopReasons {
     }
 
     /** Counts first: tests that failed are the cause even when the build environment looks broken too. */
-    private static String checks(JsonNode result) {
+    private static String checks(JsonNode result, JsonNode receipt) {
         var kind = failureKind(result.path("failureKind").asString(""));
         var tests = result.path("testCount").asInt(0);
         var failed = result.path("failureCount").asInt(0) + result.path("errorCount").asInt(0);
@@ -99,9 +111,16 @@ public final class StopReasons {
             case ENVIRONMENT -> CHECKS_NOT_RUN
                     + ": the build environment failed (Docker, network, disk space or time limit)";
             case INVALID_EVIDENCE -> CHECKS_NOT_RUN + ": the test reports could not be read";
-            case INSUFFICIENT_EVIDENCE -> CHECKS_NOT_RUN + ": no test reports were written";
+            case INSUFFICIENT_EVIDENCE -> CHECKS_NOT_RUN + ": " + installError(receipt)
+                    .map(TaskStops::checksInstallFailedReason).orElse("no test reports were written");
             default -> CHECKS_FAILED + ": the build failed with exit code " + result.path("exitCode").asInt();
         };
+    }
+
+    /** Yarn's error when the install of a yarn plan stopped the checks; empty for Maven, as receipts before yarn. */
+    private static Optional<String> installError(JsonNode receipt) {
+        return Toolchain.YARN.name().equals(receipt.path("toolchain").asString(""))
+                ? YarnBaselineOutput.installError(receipt.path("output").asString("")) : Optional.empty();
     }
 
     private static VerificationFailure failureKind(String name) {

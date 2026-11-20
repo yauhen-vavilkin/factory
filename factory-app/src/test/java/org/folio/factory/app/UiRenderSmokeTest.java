@@ -49,6 +49,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.HtmlUtils;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.SessionTrackingMode;
 import org.thymeleaf.ITemplateEngine;
@@ -821,6 +822,73 @@ class UiRenderSmokeTest {
         assertThat(text(unchangedPage)).contains("Reason The agent finished without changing any file."
                 + " Start a new run with clearer instructions.");
         assertThat(unchangedPage).doesNotContain("Candidate contains no changes", "configuration#limits");
+    }
+
+    @Test
+    void theStopsOfAYarnRunSayTheCauseAndWhatToDoOnMyTasksTheTaskPageAndTheRunPage() {
+        resetTaskData();
+        String lockfile = "Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.";
+        String missing = "Couldn't find package \"@folio/x@^1.0.0\" on the \"npm\" registry.";
+        Task checks = seedTask("70084", "MODBAR-784", "Checks install task", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        PipelineExecution execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
+        TaskAttempt attempt = seedAttempt(checks, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                StopReasons.CHECKS_NOT_RUN + ": " + TaskStops.checksInstallFailedReason(lockfile));
+        attempt.setExecutionId(execution.getId());
+        taskAttempts.save(attempt);
+        // The coding-container install and the lockfile pin as runs stored them before the rewording.
+        Task coding = seedTask("70085", "MODBAR-785", "Coding install task", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        seedAttempt(coding, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "BLOCKED_ENVIRONMENT: Workspace dependency install failed before model spend: " + missing);
+        Task pin = seedTask("70086", "MODBAR-786", "Lockfile pin task", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        seedAttempt(pin, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "BLOCKED_ENVIRONMENT: Starting build could not pin the dependency lockfile: yarn.lock is not a"
+                        + " regular file");
+
+        // Each row shows the cause as its first sentence.
+        assertThat(text(assertRendered("/flows/dev-factory", "Ready to run")))
+                .contains(HtmlUtils.htmlEscape("Checks could not run: the dependency install of the agent's changes"
+                                + " failed."), HtmlUtils.htmlEscape(TaskStops.CODING_INSTALL_FAILED_START),
+                        TaskStops.LOCKFILE_NOT_PINNED_START)
+                .doesNotContain("before model spend", "could not pin", "BLOCKED_ENVIRONMENT", "VERIFICATION_NOT_RUN");
+        String checksCard = HtmlUtils.htmlEscape("Run 1 failed Reason Checks could not run: "
+                + TaskStops.checksInstallFailedReason(lockfile) + " No pull request was created.");
+        assertThat(text(assertRendered("/tasks/" + checks.getId(), "Failed"))).contains(checksCard);
+        assertThat(text(assertRendered("/executions/" + execution.getId(), "Developer Flow"))).contains(checksCard);
+        assertThat(text(assertRendered("/tasks/" + coding.getId(), "Failed")))
+                .contains(HtmlUtils.htmlEscape("Reason " + TaskStops.codingInstallFailedReason(missing)));
+        assertThat(text(assertRendered("/tasks/" + pin.getId(), "Failed")))
+                .contains("Reason " + TaskStops.lockfileNotPinnedReason("yarn.lock is not a regular file"));
+    }
+
+    @Test
+    void aRoundCountsAJestSuiteThatFailedToLoadAsFailedAndAFailedInstallSaysWhatToFix() {
+        var execution = new PipelineExecution("dev-factory",
+                org.folio.factory.devfactory.feedback.FeedbackArtifacts.VERSION, "{}");
+        execution.setStatus(ExecutionStatus.AWAITING_HITL);
+        execution = executions.save(execution);
+        var id = execution.getId();
+        var first = "\"round\":1,\"pr\":" + PR_6 + ",\"selected\":[],\"roundStartedAt\":\"2026-11-10T18:22:00Z\"";
+        var checks = "{\"executionId\":\"" + id + "\",\"argv\":[],\"exitCode\":1,\"surefireReportCount\":1,"
+                + "\"testCount\":2,\"failureCount\":0,\"errorCount\":1,\"result\":\"FAIL\","
+                + "\"output\":\"Cannot find module\",\"failsafeReportCount\":0,\"toolchain\":\"YARN\"}";
+        artifactStore.put(id, "dev_pr_state.json", "{" + first + ",\"phase\":\"CODE\"}", "application/json", "test");
+        artifactStore.put(id, "dev_pr_state.json", "{" + first + ",\"phase\":\"FAILURE\",\"verification\":" + checks
+                + "}", "application/json", "test");
+        var install = TaskStops.feedbackInstallFailedCause("Couldn't find package \"@folio/x@^1.0.0\".");
+        var second = "\"round\":2,\"pr\":" + PR_6 + ",\"selected\":[],\"roundStartedAt\":\"2026-11-10T18:40:00Z\"";
+        artifactStore.put(id, "dev_pr_state.json", "{" + second + ",\"phase\":\"CODE\"}", "application/json", "test");
+        artifactStore.put(id, "dev_pr_state.json", "{" + second + ",\"phase\":\"FAILURE\",\"failureKind\":\"CODING\","
+                + "\"reason\":" + JsonMapper.builder().build().writeValueAsString(install) + "}",
+                "application/json", "test");
+
+        assertThat(text(assertRendered("/executions/" + id, "Rounds")))
+                .contains("2 tests, 1 failed", "Checks failed: 1 of 2 tests failed.", HtmlUtils.htmlEscape(install))
+                .doesNotContain("2 tests, 0 failed", "before any model call");
     }
 
     @Test

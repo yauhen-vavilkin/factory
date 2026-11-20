@@ -523,3 +523,10 @@ findings are in the commits of that day.
   command or the seed timeout, and `effectiveRepositories` has no toolchain. Only
   `/api/developer/preflight` returns these maps; the Configuration tab does not show them. A fix would add
   the yarn facts to the runtime map and the toolchain to each repository.
+- **The Configuration tab shows only the plan command as the checks of a yarn repository.**
+  `DeveloperRunSetup.checks` prints the plan's tokens and the build image, for example "yarn test
+  --maxWorkers=2 in node:22.22.0-bookworm". The starting build and the checks run the configured yarn install
+  first (`DevRuntimeProperties.verificationCommand` puts `installCommand` in front of a YARN plan), so the tab
+  leaves out the step that most yarn failures come from, `--frozen-lockfile` included, and a developer who reads
+  it cannot explain a lockfile error. A fix: when `installCommand(plan)` is not empty, show "<install> then
+  <plan> in <image>" from the joined tokens, not the `sh -c` form.

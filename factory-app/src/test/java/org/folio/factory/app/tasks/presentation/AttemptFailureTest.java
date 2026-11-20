@@ -1,5 +1,6 @@
 package org.folio.factory.app.tasks.presentation;
 
+import org.folio.factory.app.tasks.execution.StopReasons;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.junit.jupiter.api.Test;
@@ -90,6 +91,23 @@ class AttemptFailureTest {
                 .isEqualTo(TaskStops.startingBuildFailedReason(""))
                 .startsWith("The build of the base branch failed before the agent started, so nothing was spent.")
                 .contains("config/developer-repositories.yaml");
+    }
+
+    @Test
+    void theInstallAndLockfileStopsStoredByOlderRunsSayTodaysWordsAndKeepTheError() {
+        var error = "Couldn't find package \"@folio/x@^1.0.0\" on the \"npm\" registry.";
+
+        assertThat(AttemptFailure.reason("BLOCKED_ENVIRONMENT: Workspace dependency install failed before model"
+                + " spend: " + error)).isEqualTo(TaskStops.codingInstallFailedReason(error));
+        assertThat(AttemptFailure.reason("BLOCKED_ENVIRONMENT: Starting build could not pin the dependency"
+                + " lockfile: yarn.lock is not a regular file"))
+                .isEqualTo(TaskStops.lockfileNotPinnedReason("yarn.lock is not a regular file"));
+        // Today's reasons pass through as they are.
+        assertThat(AttemptFailure.reason("BLOCKED_ENVIRONMENT: " + TaskStops.codingInstallFailedReason(error)))
+                .isEqualTo(TaskStops.codingInstallFailedReason(error));
+        assertThat(AttemptFailure.reason(StopReasons.CHECKS_NOT_RUN + ": "
+                + TaskStops.checksInstallFailedReason(error)))
+                .isEqualTo("Checks could not run: " + TaskStops.checksInstallFailedReason(error));
     }
 
     @Test

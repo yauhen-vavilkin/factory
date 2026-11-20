@@ -29,6 +29,10 @@ public record AttemptFailure(String headline, String reason) {
     private static final String IMPLEMENTATION = "Implementation";
     private static final String OLD_NO_CHANGES = "Candidate contains no changes";
     private static final String OLD_STARTING_BUILD_FAILED = "Starting build failed before model spend";
+    /** Older runs put yarn's error after these words. */
+    private static final String OLD_CODING_INSTALL_FAILED = "Workspace dependency install failed before model spend: ";
+    /** Older runs put the cause after these words. */
+    private static final String OLD_LOCKFILE_NOT_PINNED = "Starting build could not pin the dependency lockfile: ";
     /** Older runs named the attempt id in this text. */
     private static final String OLD_REPLAYED_CODING = "Paid coding was already started for task attempt";
     private static final Pattern OLD_DEADLINE = Pattern.compile("^the whole-attempt deadline expired before ([^;]+);");
@@ -189,6 +193,12 @@ public record AttemptFailure(String headline, String reason) {
         }
         if (text.startsWith(OLD_STARTING_BUILD_FAILED)) {
             return TaskStops.startingBuildFailedReason("");
+        }
+        if (text.startsWith(OLD_CODING_INSTALL_FAILED)) {
+            return TaskStops.codingInstallFailedReason(text.substring(OLD_CODING_INSTALL_FAILED.length()));
+        }
+        if (text.startsWith(OLD_LOCKFILE_NOT_PINNED)) {
+            return TaskStops.lockfileNotPinnedReason(text.substring(OLD_LOCKFILE_NOT_PINNED.length()));
         }
         if (text.startsWith(OLD_REPLAYED_CODING)) {
             return TaskStops.REPLAYED_CODING_REASON;

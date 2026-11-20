@@ -29,6 +29,15 @@ class FeedbackRowsTest {
     }
 
     @Test
+    void aJestSuiteThatFailedToLoadCountsAsAFailedTestInTheMetaLineAsInTheChecks() {
+        var round = round("{\"round\":1,\"phase\":\"FAILURE\",\"selected\":[" + COMMENT + "],\"verification\":"
+                + checks(1, 2, 0, 1, "FAIL", "Cannot find module") + "}");
+
+        assertThat(round.meta()).isEqualTo("2 tests, 1 failed");
+        assertThat(round.checks()).isEqualTo("Checks failed: 1 of 2 tests failed.");
+    }
+
+    @Test
     void passedChecksShowTheTestCountWithoutOutput() {
         var round = round("{\"round\":1,\"phase\":\"READY\",\"selected\":[" + COMMENT + "],\"verification\":"
                 + checks(0, 1, 0, "PASS", "BUILD SUCCESS") + "}");
@@ -84,8 +93,12 @@ class FeedbackRowsTest {
     }
 
     private static String checks(int exitCode, int tests, int failures, String result, String output) {
+        return checks(exitCode, tests, failures, 0, result, output);
+    }
+
+    private static String checks(int exitCode, int tests, int failures, int errors, String result, String output) {
         return "{\"executionId\":\"run-1\",\"argv\":[],\"exitCode\":" + exitCode + ",\"surefireReportCount\":1,"
-                + "\"testCount\":" + tests + ",\"failureCount\":" + failures + ",\"errorCount\":0,"
+                + "\"testCount\":" + tests + ",\"failureCount\":" + failures + ",\"errorCount\":" + errors + ","
                 + "\"result\":\"" + result + "\",\"output\":\"" + output + "\",\"failsafeReportCount\":0}";
     }
 }

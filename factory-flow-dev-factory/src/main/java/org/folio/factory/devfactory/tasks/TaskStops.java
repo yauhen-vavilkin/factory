@@ -39,6 +39,17 @@ public final class TaskStops {
     public static final String STARTING_BUILD_FAILED_START = "The build of the base branch failed before the agent"
             + " started, so nothing was spent.";
 
+    /**
+     * The start of {@link #codingInstallFailedReason} and {@link #feedbackInstallFailedCause}: the cause. It says
+     * nothing about spend, because a run that continues after an answer has already spent.
+     */
+    public static final String CODING_INSTALL_FAILED_START = "The dependency install in the agent's container"
+            + " failed, so the agent did not start.";
+
+    /** The start of {@link #lockfileNotPinnedReason}: the cause, so a list row that shows one sentence has it. */
+    public static final String LOCKFILE_NOT_PINNED_START = "The build of the base branch made a yarn.lock that"
+            + " Factory could not use, so the agent did not start and nothing was spent.";
+
     /** The start of {@link #deadlineReason}, by which a page knows the cause is a limit it can link to. */
     public static final String DEADLINE_START = "The run used all of its time before ";
 
@@ -54,10 +65,52 @@ public final class TaskStops {
      * found in the build output, or blank.
      */
     public static String startingBuildFailedReason(String summary) {
-        var found = summary == null || summary.isBlank() ? ""
+        return STARTING_BUILD_FAILED_START + " " + found(summary) + "Open the run to see the build output, then fix"
+                + " the base branch or the check command in config/developer-repositories.yaml.";
+    }
+
+    /**
+     * Why a task attempt stopped when the dependency install in the agent's container failed; {@code error} is
+     * yarn's last error or the exit code. The starting build installed the same dependencies in the build image.
+     */
+    public static String codingInstallFailedReason(String error) {
+        return CODING_INSTALL_FAILED_START + " " + found(error) + "Check that the agent's container can reach the npm"
+                + " registry and that its image has the Node version the module needs, then start a new run.";
+    }
+
+    /**
+     * {@link #codingInstallFailedReason} for a PR feedback round, whose pull request may hold the change that breaks
+     * the install. No new run, because the round offers its own buttons under it.
+     */
+    public static String feedbackInstallFailedCause(String error) {
+        return CODING_INSTALL_FAILED_START + " " + found(error) + "Fix package.json or yarn.lock on the pull request"
+                + " branch, or check that the agent's container can reach the npm registry.";
+    }
+
+    /** Why an attempt stopped when the yarn.lock that the starting build generated was unusable. */
+    public static String lockfileNotPinnedReason(String error) {
+        return LOCKFILE_NOT_PINNED_START + " " + found(error) + "Start a new run, and if it stops the same way, add a"
+                + " yarn.lock to the base branch.";
+    }
+
+    /**
+     * Why the checks could not run when the dependency install of the agent's changes failed, after "Checks could
+     * not run: " on a page; {@code error} is yarn's last error. No next step, as in {@link #secretInChangesCause}.
+     */
+    public static String checksInstallFailedCause(String error) {
+        return ("the dependency install of the agent's changes failed. " + found(error)).strip();
+    }
+
+    /** {@link #checksInstallFailedCause} with the next step of a task attempt. */
+    public static String checksInstallFailedReason(String error) {
+        return checksInstallFailedCause(error) + " Start a new run and tell the agent to update yarn.lock with every"
+                + " change to package.json and to use only packages that the npm registry has.";
+    }
+
+    /** What Factory found in the output, as a sentence followed by a space; blank when it found nothing. */
+    private static String found(String summary) {
+        return summary == null || summary.isBlank() ? ""
                 : summary.strip() + (summary.strip().endsWith(".") ? " " : ". ");
-        return STARTING_BUILD_FAILED_START + " " + found + "Open the run to see the build output, then fix the base"
-                + " branch or the check command in config/developer-repositories.yaml.";
     }
 
     /**

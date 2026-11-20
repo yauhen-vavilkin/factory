@@ -62,6 +62,16 @@ public final class YarnBaselineOutput implements BuildOutput {
         return Optional.of(safe.substring(0, Math.min(200, safe.length())));
     }
 
+    /**
+     * The last yarn error of a command that stopped in its dependency install. An install that finished prints
+     * "Done in", so an error after it came from the command that ran next.
+     */
+    public static Optional<String> installError(String output) {
+        if (output == null || output.lines().anyMatch(raw -> ANSI.matcher(raw).replaceAll("").strip()
+                .startsWith("Done in "))) return Optional.empty();
+        return lastError(output);
+    }
+
     /** Retry only yarn's own network errors, never network words that tests print. */
     public static boolean isTransientDownloadFailure(String output) {
         if (output == null || output.isBlank()) return false;

@@ -162,8 +162,7 @@ public final class InitialCodingAttempt {
             throw new StartingBuildNetworkException("Workspace dependency install hit a network/download failure;"
                     + " coding has not started. " + install.failure());
         }
-        return new Stop("BLOCKED_ENVIRONMENT",
-                "Workspace dependency install failed before model spend: " + install.failure());
+        return new Stop("BLOCKED_ENVIRONMENT", TaskStops.codingInstallFailedReason(install.failure()));
     }
 
     private Optional<Stop> prepare(Run run, Mode mode, RunState state) {
@@ -222,7 +221,7 @@ public final class InitialCodingAttempt {
     private Optional<Stop> baselineStop(Run run, BaselineBuild.Result baseline) {
         if (baseline.process().exitCode() == 0) {
             return Optional.ofNullable(baseline.lockfileError()).map(error -> new Stop("BLOCKED_ENVIRONMENT",
-                    "Starting build could not pin the dependency lockfile: " + error));
+                    TaskStops.lockfileNotPinnedReason(error)));
         }
         var context = run.context();
         var summary = baseline.summary();

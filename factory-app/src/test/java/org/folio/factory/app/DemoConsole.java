@@ -23,6 +23,7 @@ import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.feedback.FeedbackState;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.TokenUsage;
+import org.folio.factory.devfactory.runtime.Toolchain;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.verification.VerificationFailure;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -56,14 +57,17 @@ import java.util.UUID;
  * <p>The states: ready to run (from a scan, added by key, in progress in Jira with a two-line title, withdrawn
  * before the start), cannot run (no repository, several repositories), queued (two waiting, one starting), working,
  * asked a question, stopped for each cause
- * Factory names (checks failed on tests, code that does not compile, checks that could not run, a base branch that
- * does not build and spent nothing, a step the engine gave up on after three tries, time limit, turn limit,
+ * Factory names (checks failed on tests, code that does not compile, checks that could not run, checks whose yarn
+ * install failed on the agent's changes, a base branch that does not build and spent nothing, a yarn install that
+ * failed in the agent's container, a yarn.lock Factory could not use, a step the engine gave up on after three tries,
+ * time limit, turn limit,
  * whole-attempt deadline, shared configuration, a pull request GitHub refused, a coding step that Factory
  * repeated, changes that held the API key of a model), three attempts
  * that end in a pull request, the third of them with the developer's instructions, two failed attempts and a third
  * that waits in line, a failed attempt and a second that works now, a task no longer assigned to the developer, a draft pull request without and with
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
- * one that asked a question, one whose checks failed and one whose changes held the API key of a model, and a run
+ * one that asked a question, one whose checks failed, one whose Jest suite failed to load, one whose yarn install
+ * failed in the agent's container and one whose changes held the API key of a model, and a run
  * whose end Factory could not confirm, with and without the queue held and after it opened a pull request.
  *
  * <p>Every run that reached the agent reports its usage the way the coding step does, with the model, the effort
@@ -128,6 +132,7 @@ class DemoConsole {
         askedAQuestion();
         failed();
         startingBuildFailed();
+        yarnStoppedBeforeTheAgent();
         engineGaveUp();
         stoppedByLimits();
         threeAttempts();
@@ -142,6 +147,8 @@ class DemoConsole {
         roundWorking();
         roundAsked();
         roundFailed();
+        roundSuiteFailedToLoad();
+        roundInstallFailed();
         roundKeyInChanges();
         endNotConfirmed();
         ranTwentyDaysAgo();
@@ -210,6 +217,23 @@ class DemoConsole {
                 + "\"failureKind\":\"UNKNOWN\",\"exitCode\":1");
         checksFailed("80029", "Task whose code does not compile", "\"failureKind\":\"CANDIDATE_COMPILE\",\"exitCode\":1");
         checksFailed("80030", "Task whose checks could not run", "\"failureKind\":\"ENVIRONMENT\",\"exitCode\":-1");
+        checksInstallFailed();
+    }
+
+    /** The agent's change broke the yarn install of the checks, so Jest wrote no report; yarn's error says why. */
+    private void checksInstallFailed() {
+        var execution = execution("0.6.0", ExecutionStatus.COMPLETED, 10);
+        var receipt = "{\"result\":\"FAIL\",\"toolchain\":\"YARN\",\"exitCode\":1,\"testCount\":null,"
+                + "\"failureKind\":\"INSUFFICIENT_EVIDENCE\",\"output\":\"yarn install v1.22.22\\n[1/4] Resolving"
+                + " packages...\\nerror Your lockfile needs to be updated, but yarn was run with"
+                + " `--frozen-lockfile`.\"}";
+        var result = "{\"state\":\"" + StopReasons.CHECKS_FAILED + "\",\"failureKind\":\"INSUFFICIENT_EVIDENCE\","
+                + "\"exitCode\":1}";
+        artifacts.put(execution.getId(), VerifyWorker.RECEIPT, receipt, "application/json", "demo");
+        artifacts.put(execution.getId(), VerifyWorker.RESULT, result, "application/json", "demo");
+        attempt(task("80041", "MODBAR-841", "Task whose checks could not install the dependencies"),
+                TaskAttempt.State.STOPPED, StopReasons.ofResult(JSON.readTree(result), JSON.readTree(receipt)),
+                execution);
     }
 
     /** The verification result in the shape VerifyWorker writes, and the reason Factory builds from it. */
@@ -283,6 +307,21 @@ class DemoConsole {
                 "demo");
         attempt(task("80031", "MODBAR-831", "Task whose base branch does not build"), TaskAttempt.State.STOPPED,
                 "BLOCKED_ENVIRONMENT: " + TaskStops.startingBuildFailedReason(""), execution);
+    }
+
+    /**
+     * A ui-* task that stopped before the agent: the dependency install in the agent's container failed, or the
+     * yarn.lock that the build of the base branch made could not be used. Neither run spent anything.
+     */
+    private void yarnStoppedBeforeTheAgent() {
+        attempt(task("80042", "MODBAR-842", "Task whose dependency install failed in the agent's container"),
+                TaskAttempt.State.STOPPED, "BLOCKED_ENVIRONMENT: " + TaskStops.codingInstallFailedReason(
+                        "Couldn't find package \"@folio/stripes-x@^9.0.0\" on the \"npm\" registry."),
+                bareExecution("0.6.0", ExecutionStatus.COMPLETED, 10));
+        attempt(task("80043", "MODBAR-843", "Task whose generated yarn.lock Factory could not use"),
+                TaskAttempt.State.STOPPED, "BLOCKED_ENVIRONMENT: " + TaskStops.lockfileNotPinnedReason(
+                        "The generated yarn.lock is unusable: yarn.lock exceeds 4 MiB"),
+                bareExecution("0.6.0", ExecutionStatus.COMPLETED, 10));
     }
 
     /** GitHub answered 429 on each try to open the pull request, so the engine gave up and opened its review. */
@@ -435,6 +474,38 @@ class DemoConsole {
                 + checks.failureKind() + "\",\"reason\":" + FeedbackArtifacts.JSON.writeValueAsString(
                 checks.failureReason()) + ",\"verification\":" + FeedbackArtifacts.JSON.writeValueAsString(checks));
         comments(execution.getId(), 16, selected);
+        review(execution);
+    }
+
+    /** A Jest suite failed to load after the first feedback round, which Jest counts as an error, not a failure. */
+    private void roundSuiteFailedToLoad() {
+        var execution = delivered("80044", "MODBAR-844", "Pull request whose feedback round broke a Jest suite", 44,
+                true, ExecutionStatus.AWAITING_HITL);
+        var selected = comment("inline:1", "reviewer", "Move the helper to utils.", "src/Users.js", 20, 44);
+        var now = Instant.now();
+        var checks = new VerificationReceipt(execution.getId().toString(), "mod-bar", "a".repeat(40), "b".repeat(40),
+                "c".repeat(64), "node22-jest", "node:22", List.of("sh", "-c", "yarn install && yarn test"), "checks",
+                now, now, 1, 1, 2, 0, 1, "FAIL", "FAIL src/Users.test.js\n  Test suite failed to run\n    Cannot find"
+                + " module './utils'", VerificationFailure.UNKNOWN, 0, List.of(), List.of(), Toolchain.YARN, null);
+        state(execution.getId(), roundStart(44, selected) + ",\"phase\":\"CODE\"");
+        state(execution.getId(), roundStart(44, selected) + ",\"phase\":\"FAILURE\",\"failureKind\":\"UNKNOWN\","
+                + "\"reason\":" + FeedbackArtifacts.JSON.writeValueAsString(checks.failureReason())
+                + ",\"verification\":" + FeedbackArtifacts.JSON.writeValueAsString(checks));
+        comments(execution.getId(), 44, selected);
+        review(execution);
+    }
+
+    /** The dependency install in the agent's container failed in the first feedback round, before any model call. */
+    private void roundInstallFailed() {
+        var execution = delivered("80045", "MODBAR-845", "Pull request whose feedback round could not install the"
+                + " dependencies", 45, true, ExecutionStatus.AWAITING_HITL);
+        var selected = comment("inline:1", "reviewer", "Add the date picker.", "package.json", 30, 45);
+        var reason = TaskStops.feedbackInstallFailedCause(
+                "Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.");
+        state(execution.getId(), roundStart(45, selected) + ",\"phase\":\"CODE\"");
+        state(execution.getId(), roundStart(45, selected) + ",\"phase\":\"FAILURE\",\"failureKind\":\"CODING\","
+                + "\"reason\":" + FeedbackArtifacts.JSON.writeValueAsString(reason));
+        comments(execution.getId(), 45, selected);
         review(execution);
     }
 

@@ -4,6 +4,7 @@ import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
+import org.folio.factory.app.tasks.execution.StopReasons;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
@@ -24,6 +25,7 @@ import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.BeforeEach;
@@ -222,6 +224,25 @@ class TaskViewTest {
         assertThat(entry.executionId()).isEqualTo(executionId);
         assertThat(view.allowedActions().retry()).isTrue();
         assertThat(view.allowedActions().select()).isFalse();
+    }
+
+    @Test
+    void checksWhoseYarnInstallFailedOnTheAgentsChangesStoreTheInstallErrorAsTheReason() {
+        Task failed = eligibleTask("90022", "MODBAR-922");
+        fixture.admit(failed, "run-922");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
+        stateManager.transition(executionId, ExecutionStatus.COMPLETED, null);
+        writeArtifact(executionId, VerifyWorker.RECEIPT, "{\"result\":\"FAIL\",\"toolchain\":\"YARN\",\"exitCode\":1,"
+                + "\"testCount\":null,\"failureKind\":\"INSUFFICIENT_EVIDENCE\",\"output\":\"yarn install v1.22.22\\n"
+                + "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.\"}");
+        writeArtifact(executionId, VerifyWorker.RESULT, "{\"state\":\"VERIFICATION_FAILED\",\"exitCode\":1,"
+                + "\"testCount\":null,\"failureKind\":\"INSUFFICIENT_EVIDENCE\"}");
+        outcomes.refresh(attempt.getId());
+
+        assertThat(query.detail(failed.getId()).reason()).isEqualTo(StopReasons.CHECKS_NOT_RUN + ": "
+                + TaskStops.checksInstallFailedReason(
+                        "Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."));
     }
 
     @Test

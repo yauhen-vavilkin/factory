@@ -2,10 +2,13 @@ package org.folio.factory.devfactory.verification;
 
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.runtime.Toolchain;
+import org.folio.factory.devfactory.runtime.YarnBaselineOutput;
+import org.folio.factory.devfactory.tasks.TaskStops;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Persist only as a Factory artifact, outside every workload's writable filesystem.
@@ -79,9 +82,16 @@ public record VerificationReceipt(String executionId, String repository, String 
             case ENVIRONMENT -> "Checks could not run: the build environment failed (Docker, network, disk space"
                     + " or time limit).";
             case INVALID_EVIDENCE -> "Checks could not run: the test reports could not be read.";
-            case INSUFFICIENT_EVIDENCE -> "Checks could not run: no test reports were written.";
+            case INSUFFICIENT_EVIDENCE -> installError()
+                    .map(error -> "Checks could not run: " + TaskStops.checksInstallFailedCause(error))
+                    .orElse("Checks could not run: no test reports were written.");
             default -> "Checks failed: the build failed with exit code " + exitCode + ".";
         };
+    }
+
+    /** Yarn's error when the install of a yarn plan stopped the checks before any test ran. */
+    private Optional<String> installError() {
+        return toolchain == Toolchain.YARN ? YarnBaselineOutput.installError(output) : Optional.empty();
     }
 
     private static void requireLockfileDigest(String sha256) {

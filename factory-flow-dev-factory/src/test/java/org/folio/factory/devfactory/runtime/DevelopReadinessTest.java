@@ -669,7 +669,8 @@ class DevelopReadinessTest {
         var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
-                .contains("could not pin the dependency lockfile");
+                .contains(TaskStops.lockfileNotPinnedReason(
+                        "The generated yarn.lock is unusable: Not a usable yarn lockfile"));
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
     }
 
@@ -697,8 +698,8 @@ class DevelopReadinessTest {
         var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
-                .contains("Workspace dependency install failed before model spend")
-                .contains("lockfile needs to be updated");
+                .contains(TaskStops.codingInstallFailedReason(
+                        "Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."));
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         verify(harness.codingWorkload()).close();
     }
@@ -751,7 +752,7 @@ class DevelopReadinessTest {
         var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
-                .contains("Workspace dependency install failed before model spend");
+                .contains(TaskStops.CODING_INSTALL_FAILED_START);
         assertThat(taskAttempts.paidStartClaims).isZero();
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
     }

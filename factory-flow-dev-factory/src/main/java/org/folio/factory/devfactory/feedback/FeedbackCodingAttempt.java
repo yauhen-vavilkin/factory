@@ -78,7 +78,7 @@ final class FeedbackCodingAttempt {
         var prepared = PreparedWorkspace.prepare(workload, runtime, plan, install, progress);
         if (prepared.failed()) {
             return CodingOutcome.failed("WORKSPACE_INSTALL",
-                    "Dependency install failed before any model call: " + prepared.failure(), Map.of());
+                    TaskStops.feedbackInstallFailedCause(prepared.failure()), Map.of());
         }
         var verified = request.withVerification(String.join(" ", runtime.command(plan)), prepared.installed());
         return code(operation, verified, workload, progress);

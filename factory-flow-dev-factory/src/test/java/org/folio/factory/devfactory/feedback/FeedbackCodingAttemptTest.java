@@ -166,8 +166,8 @@ class FeedbackCodingAttemptTest {
         var outcome = runRound(JEST, Optional.empty());
 
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.FAILED);
-        assertThat(outcome.failure().message()).contains("Dependency install failed before any model call")
-                .contains("lockfile needs to be updated");
+        assertThat(outcome.failure().message()).isEqualTo(TaskStops.feedbackInstallFailedCause(
+                "Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."));
         verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         verify(workload).stop();
         assertThat(operation.outputs()).containsKey(FeedbackArtifacts.CANDIDATE);

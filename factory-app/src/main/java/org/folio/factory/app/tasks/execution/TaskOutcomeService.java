@@ -191,7 +191,8 @@ public class TaskOutcomeService {
         String codingFailureCode = readArtifact(executionId, DevelopWorker.OUTCOME)
                 .path("failure").path("code").asString(null);
         String reason = firstNonBlank(attempt.getResultReason(),
-                StopReasons.ofResult(readArtifact(executionId, VerifyWorker.RESULT)),
+                StopReasons.ofResult(readArtifact(executionId, VerifyWorker.RESULT),
+                        readArtifact(executionId, VerifyWorker.RECEIPT)),
                 runEnded(execution));
         // Design 5.3: once inactivity is proven, a shared outage stops this attempt with its
         // persisted cause while the queue continues; startup rechecks the provider for the next ones.
