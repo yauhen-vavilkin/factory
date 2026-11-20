@@ -123,8 +123,9 @@ public final class InitialCodingAttempt {
         try (var workload = run.scope().createSeeded(services.coding().image(), state.pristine,
                 settings.runtime().environment(run.plan()), "coding")) {
             var install = prepareWorkspace(run, state, workload);
-            if (install.failed()) {
-                return failedAttempt(installStop(install), state);
+            var codingStop = codingStop(run, mode, install);
+            if (codingStop.isPresent()) {
+                return failedAttempt(codingStop.get(), state);
             }
             outcome = code(run, state, workload, run.request().withVerification(
                     String.join(" ", settings.runtime().command(run.plan())), install.installed()));
@@ -138,7 +139,22 @@ public final class InitialCodingAttempt {
         pinned.ifPresent(workload::seedLockfile);
         var install = pinned.map(pin -> pin.installMode(state.pristine)).orElse(InstallMode.FROZEN);
         return PreparedWorkspace.prepare(workload, settings.runtime(), run.plan(), install,
-                event -> progress(run.context(), event));
+                stageTimeoutSeconds(run), event -> progress(run.context(), event));
+    }
+
+    /**
+     * Checked after the install, right before the model call: a run whose time ran out during the install
+     * stops at the deadline, and only a ready workspace claims the paid start.
+     */
+    private Optional<Stop> codingStop(Run run, Mode mode, PreparedWorkspace.Result install) {
+        var stop = taskStop(run, "coding");
+        if (stop.isPresent()) {
+            return stop;
+        }
+        if (install.failed()) {
+            return Optional.of(installStop(install));
+        }
+        return mode == Mode.START ? claimPaidStart(run) : Optional.empty();
     }
 
     private static Stop installStop(PreparedWorkspace.Result install) {
@@ -164,7 +180,8 @@ public final class InitialCodingAttempt {
         if (mode == Mode.CONTINUATION) {
             return Optional.empty();
         }
-        return runBaseline(run, state).or(() -> claimPaidStart(run));
+        // A run that lost its slot or ran out of time in the starting build opens no coding container.
+        return runBaseline(run, state).or(() -> taskStop(run, "coding"));
     }
 
     private Optional<Stop> runBaseline(Run run, RunState state) {
@@ -220,10 +237,6 @@ public final class InitialCodingAttempt {
     }
 
     private Optional<Stop> claimPaidStart(Run run) {
-        var stop = taskStop(run, "coding");
-        if (stop.isPresent()) {
-            return stop;
-        }
         if (!run.taskRun() || taskGuard.policy().claimPaidStart(run.executionId())) {
             return Optional.empty();
         }

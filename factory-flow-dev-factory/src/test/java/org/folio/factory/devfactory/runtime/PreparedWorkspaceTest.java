@@ -56,6 +56,16 @@ class PreparedWorkspaceTest {
         assertThat(events.get(0)).containsEntry("command", String.join(" ", resolving));
     }
 
+    @Test
+    void theInstallRunsWithinTheGivenTimeout() {
+        when(workload.execute(install, 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Done in 14s."));
+
+        var result = PreparedWorkspace.prepare(workload, runtime, "jest", InstallMode.FROZEN, 30, events::add);
+
+        assertThat(result.installed()).isTrue();
+        verify(workload).execute(install, 30, Processes.OUTPUT_LIMIT, null);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ETIMEDOUT\".",

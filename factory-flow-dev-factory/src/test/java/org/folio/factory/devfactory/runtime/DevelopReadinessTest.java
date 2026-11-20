@@ -116,6 +116,11 @@ class DevelopReadinessTest {
         }
         verify(harness.baseline(), times(2)).close();
         verify(harness.codingWorkload()).close();
+        var environment = BuildEnvironment.maven("factory-dev-m2-cache");
+        verify(harness.scope(), times(2)).createTrusted("build:image", workspace, environment);
+        verify(harness.scope()).createSeeded("coding:image", workspace, environment, "coding");
+        verify(harness.baseline(), times(2)).executeKeepingTail(eq(List.of("mvn", "test")), eq(60),
+                eq(Processes.OUTPUT_LIMIT), any());
     }
 
     @Test
@@ -148,6 +153,7 @@ class DevelopReadinessTest {
         var worker = harness.worker();
         var context = harness.context();
         if (toolchain == Toolchain.YARN) gitWorkspace(true);
+        var detail = toolchain == Toolchain.YARN ? List.of("ETIMEDOUT") : List.of("Saxon-HE", "incomplete download");
         if (retryable) {
             // Repeated worker attempts retain the configured command and do not add a global -U.
             for (int attempt = 0; attempt < 2; attempt++) {
@@ -155,14 +161,16 @@ class DevelopReadinessTest {
                 assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
                         .hasMessageContaining("Starting build hit a network/download failure")
                         .hasMessageContaining("coding has not started")
-                        .hasMessageContaining(toolchain == Toolchain.YARN ? "ETIMEDOUT" : "incomplete download");
+                        .satisfies(e -> assertThat(e.getMessage()).contains(detail));
             }
-            verify(baseline, times(2)).executeKeepingTail(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any());
         } else {
             var result = worker.execute(context);
             assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT");
             assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_FAILED", "output");
         }
+        var builds = retryable ? 2 : 1;
+        verify(harness.scope(), times(builds)).createTrusted("build:image", workspace, settings.environment("unit"));
+        verify(baseline, times(builds)).executeKeepingTail(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any());
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         verify(audit, atLeastOnce()).record(eq(context.executionId()),
                 eq(AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
@@ -204,6 +212,7 @@ class DevelopReadinessTest {
         verify(harness.coding(), times(1)).code(any(), any(), anyInt(), any(), any());
         verify(harness.docker(), times(2)).beginStep(any(), any());
         verify(harness.freezer(), times(2)).checkout(anyString(), anyString());
+        verify(harness.codingWorkload(), times(2)).close();
         verify(harness.freezer(), never()).freeze(anyString(), anyString(), anyString(), any(), eq(false), any());
         assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
             assertThat(stop).isEqualTo("implement: " + TaskStops.REPLAYED_CODING_REASON);
@@ -314,9 +323,36 @@ class DevelopReadinessTest {
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
                 .contains(TaskStops.DEADLINE_STATE)
                 .contains(TaskStops.deadlineReason("coding"));
+        verify(harness.scope(), never()).createSeeded(anyString(), any(), any(), anyString());
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         assertThat(taskAttempts.paidStartClaims).isZero();
         assertThat(taskAttempts.stops).anyMatch(stop -> stop.contains(TaskStops.deadlineReason("coding")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.",
+            "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ETIMEDOUT\"."})
+    void aDeadlineExpiringDuringTheCodingInstallStopsAtTheDeadlineWithoutClaimingThePaidStart(String installError) {
+        var now = new AtomicReference<>(Instant.now());
+        var clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(invocation -> now.get());
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(now.get().plusSeconds(3)))
+                .withClock(clock);
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), true, taskAttempts);
+        when(harness.codingWorkload().execute(anyList(), anyInt(), anyInt(), any())).thenAnswer(invocation -> {
+            now.set(now.get().plusSeconds(4));
+            return new Processes.Result(installError.isEmpty() ? 0 : 1, installError);
+        });
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(TaskStops.DEADLINE_STATE, TaskStops.deadlineReason("coding"));
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        assertThat(taskAttempts.stops).singleElement()
+                .isEqualTo("implement: " + TaskStops.deadlineReason("coding"));
     }
 
     @Test
@@ -362,6 +398,21 @@ class DevelopReadinessTest {
         var codingTimeout = ArgumentCaptor.forClass(Integer.class);
         verify(harness.coding()).code(any(), any(CodingRequest.class), codingTimeout.capture(), any(), any());
         assertThat(codingTimeout.getValue()).isEqualTo(45);
+    }
+
+    @Test
+    void theRemainingBudgetAlsoCapsTheInstallInTheCodingContainer() {
+        var now = Instant.parse("2026-10-23T10:00:00Z");
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(now.plusSeconds(45)))
+                .withClock(Clock.fixed(now, java.time.ZoneOffset.UTC));
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), true, taskAttempts);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("CANDIDATE_UNVERIFIED");
+        // The configured limit is 60 seconds; 45 are left of the run.
+        verify(harness.codingWorkload()).execute(install(), 45, Processes.OUTPUT_LIMIT, null);
     }
 
     @Test
@@ -554,6 +605,11 @@ class DevelopReadinessTest {
         order.verify(harness.coding()).code(eq(harness.codingWorkload()), request.capture(), anyInt(), any(), any());
         assertThat(request.getValue().constraints().verificationCommand()).isEqualTo("yarn test --maxWorkers=2");
         assertThat(request.getValue().constraints().dependenciesInstalled()).isTrue();
+        var environment = YARN.environment("unit");
+        verify(harness.scope()).createTrusted("build:image", workspace, environment);
+        verify(harness.scope()).createSeeded("coding:image", workspace, environment, "coding");
+        verify(harness.baseline()).executeKeepingTail(eq(YARN.verificationCommand("unit")), eq(60),
+                eq(Processes.OUTPUT_LIMIT), any());
     }
 
     @Test
@@ -569,6 +625,8 @@ class DevelopReadinessTest {
         assertThat(result.outputs().get(DevelopWorker.READINESS))
                 .contains("\"lockfile\":\"PINNED\"", "\"lockfileSha256\":\"" + LOCKFILE.sha256() + "\"")
                 .doesNotContain("--frozen-lockfile'");
+        verify(harness.baseline()).executeKeepingTail(eq(YARN.verificationCommand("unit", InstallMode.RESOLVE)),
+                eq(60), eq(Processes.OUTPUT_LIMIT), any());
         var order = inOrder(harness.codingWorkload(), harness.coding());
         order.verify(harness.codingWorkload()).seedLockfile(pinned);
         order.verify(harness.codingWorkload()).execute(YARN.installCommand("unit", InstallMode.FROZEN), 60,
@@ -658,10 +716,55 @@ class DevelopReadinessTest {
         verify(harness.codingWorkload()).close();
     }
 
+    @Test
+    void aRegistryTimeoutInTheCodingInstallOfATaskRunLeavesThePaidStartToTheEngineRetry() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), true, taskAttempts);
+        when(harness.codingWorkload().execute(anyList(), anyInt(), anyInt(), any())).thenReturn(
+                new Processes.Result(1, "error An unexpected error occurred: \"https://registry.example/pkg.tgz:"
+                        + " ETIMEDOUT\"."),
+                new Processes.Result(0, "Done in 14s."));
+
+        assertThatThrownBy(() -> harness.worker().execute(harness.context()))
+                .isInstanceOf(AgentExecutionException.class)
+                .hasMessageContaining("Workspace dependency install hit a network/download failure");
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        assertThat(taskAttempts.stops).isEmpty();
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+
+        gitWorkspace(true);
+        var retried = harness.worker().execute(harness.context());
+
+        assertThat(retried.outputs().get(DevelopWorker.CANDIDATE)).contains("CANDIDATE_UNVERIFIED");
+        assertThat(taskAttempts.paidStartClaims).isEqualTo(1);
+        assertThat(taskAttempts.stops).isEmpty();
+        verify(harness.coding(), times(1)).code(any(), any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void aFailedCodingInstallOfATaskRunClaimsNoPaidStart() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        var harness = yarnHarness(new Processes.Result(1,
+                "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."), true,
+                taskAttempts);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
+                .contains("Workspace dependency install failed before model spend");
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+    }
+
     /** A yarn task whose starting build passes; the coding container's install returns {@code installResult}. */
     private TaskHarness yarnHarness(Processes.Result installResult, boolean trackedLockfile) {
+        return yarnHarness(installResult, trackedLockfile, RecordingTaskAttempts.none());
+    }
+
+    private TaskHarness yarnHarness(Processes.Result installResult, boolean trackedLockfile,
+                                    RecordingTaskAttempts taskAttempts) {
         gitWorkspace(trackedLockfile);
-        var harness = taskHarness(RecordingTaskAttempts.none(), CodingTranscripts.none(), mock(AuditLog.class),
+        var harness = taskHarness(taskAttempts, CodingTranscripts.none(), mock(AuditLog.class),
                 SelectedRepositoryPreflight.none(), YARN);
         when(harness.baseline().readLockfile())
                 .thenReturn(trackedLockfile ? Optional.empty() : Optional.of(LOCKFILE));
