@@ -5,10 +5,13 @@ import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -50,6 +53,29 @@ class ModelCatalogTest {
         assertThat(file.models()).isNotEmpty();
         assertThat(catalog.all()).hasSameSizeAs(file.models());
         assertThat(catalog.defaultModel()).isPresent();
+    }
+
+    @Test
+    void imagesTrueInTheModelsFileReachesTheRuntimeDecision() throws Exception {
+        String entry = """
+                      - id: %s
+                        api: anthropic-messages
+                        base-url: http://host.docker.internal:4001
+                        authentication: bearer-token
+                        secret-env: PROXY_TOKEN
+                        model: claude-sonnet
+                        efforts: [high]
+                        default-effort: high
+                """;
+        var file = bind(new ByteArrayResource(("factory:\n  dev-factory:\n    models:\n" + entry.formatted("reads")
+                + "        images: true\n" + entry.formatted("plain")).getBytes(StandardCharsets.UTF_8)));
+        var catalog = new ModelCatalog(file, "claude-code", SECRETS::get);
+        var runtime = new ClaudeCodeCodingRuntime(new DevRuntimeProperties.ClaudeCode(null, 10), catalog);
+
+        assertThat(catalog.find("reads").orElseThrow().images()).isTrue();
+        assertThat(catalog.find("plain").orElseThrow().images()).isFalse();
+        assertThat(runtime.acceptsImages(new CodingRequest.RunSettings("reads", null, null))).isTrue();
+        assertThat(runtime.acceptsImages(new CodingRequest.RunSettings("plain", null, null))).isFalse();
     }
 
     @Test
@@ -275,9 +301,12 @@ class ModelCatalogTest {
         if (!Files.exists(file)) {
             file = Path.of("config", "developer-models.yaml");
         }
+        return bind(new FileSystemResource(file));
+    }
+
+    private static ModelCatalog.Properties bind(Resource yaml) throws Exception {
         var environment = new StandardEnvironment();
-        new YamlPropertySourceLoader().load("models", new FileSystemResource(file))
-                .forEach(environment.getPropertySources()::addLast);
+        new YamlPropertySourceLoader().load("models", yaml).forEach(environment.getPropertySources()::addLast);
         return new Binder(ConfigurationPropertySources.get(environment))
                 .bind("factory.dev-factory", ModelCatalog.Properties.class).get();
     }

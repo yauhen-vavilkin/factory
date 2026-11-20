@@ -86,6 +86,38 @@ class ClaudeCodeDockerTest {
         }
     }
 
+    /**
+     * Claude Code 2.1.287 puts an opened image twice in one output line. It shrinks a decodable image to at most
+     * 512,000 bytes, so that line stays near 1.4 MB, but it sends an image it cannot decode unchanged: for this
+     * 3.8 MB file the line is 10.1 MB, more than the 8 MiB limit of a run without images.
+     */
+    @Test void anImageTheCliCannotDecodeDoesNotBreakTheEventStream() throws Exception {
+        var broken = new byte[3_800_000];
+        new java.util.Random(5).nextBytes(broken);
+        byte[] header = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 13, 'I', 'H', 'D', 'R',
+                0, 0, 0x03, (byte) 0xe8, 0, 0, 0x03, (byte) 0xe8, 8, 2, 0, 0, 0};
+        System.arraycopy(header, 0, broken, 0, header.length);
+        var jira = org.mockito.Mockito.mock(org.folio.factory.connectors.jira.JiraConnector.class);
+        org.mockito.Mockito.when(jira.downloadAttachment(org.mockito.ArgumentMatchers.eq("1"), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(broken);
+        var request = new CodingRequest("TASK-1", "Implement task", "Description", List.of(), List.of(), List.of(), List.of(),
+                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null, null,
+                List.of(new CodingRequest.Attachment("1", "broken.png", "image/png", broken.length, "", "")));
+        try (var mock = new MessagesEndpoint(false, false);
+             var scope = new DockerWorkloads().beginStep(executionId, "claude-undecodable-image");
+             var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
+            mock.tool = "Read";
+            mock.toolInput = Map.of("file_path", "/tmp/factory-attachments/img-1.png");
+            var withImages = ClaudeCodeCodingRuntimeTest.runtime(IMAGE, mock.url(), mock.model, "api-key", 4,
+                    "unused-secret", true);
+            var outcome = new ImageStagingRuntime(withImages, jira, new DevAttachmentProperties(10, 4L * 1024 * 1024))
+                    .code(workload, request, 90, event -> {}, CodingTranscripts.NONE);
+            assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+            assertThat(mock.calls).hasSize(2);
+            assertThat(mock.calls.get(1).body.toString()).contains("\"type\":\"image\"").contains("base64");
+        }
+    }
+
     @Test void mavenRunsWithoutCallingTheAutoPermissionClassifier() throws Exception {
         Files.writeString(source.resolve("pom.xml"), """
                 <project xmlns="http://maven.apache.org/POM/4.0.0">

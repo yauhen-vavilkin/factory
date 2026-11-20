@@ -109,6 +109,24 @@ class ImageStagingRuntimeTest {
     }
 
     @Test
+    void aFailedWriteOfTheStagedEventDoesNotStopTheAttempt() {
+        when(jira.downloadAttachment("1", 1000)).thenReturn(PNG);
+        var expected = CodingOutcome.completed("Done", Map.of());
+        when(delegate.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
+            received.set(invocation.getArgument(1));
+            return expected;
+        });
+
+        var outcome = runtime(0, 1000).code(workload, request(attachment("1", "a.png", 10)), 60, event -> {
+            throw new IllegalStateException("audit write failed");
+        }, CodingTranscripts.NONE);
+
+        assertThat(outcome).isSameAs(expected);
+        assertThat(received.get().attachments()).extracting(CodingRequest.Attachment::path)
+                .containsExactly("/tmp/factory-attachments/img-1.png");
+    }
+
+    @Test
     void anImageThatCannotBeProvidedIsRecordedWithTheReasonAndDoesNotStopTheAttempt() {
         when(jira.downloadAttachment("1", 1000)).thenThrow(new IllegalStateException("HTTP 404"));
         when(jira.downloadAttachment("2", 1000)).thenReturn("<html>login page</html>".getBytes(StandardCharsets.UTF_8));

@@ -230,7 +230,7 @@ class PiCodingRuntimeTest {
             modelsJson.set(Files.readString(Path.of((String) invocation.getArgument(0)).resolve("models.json")));
             return null;
         }).when(workload).copy(anyString(), eq("/tmp/factory-pi"));
-        when(workload.execute(anyList(), eq(60), anyInt(), any()))
+        when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.eventStreamLimit(request)), any()))
                 .thenAnswer(invocation -> {
                     command.set(List.copyOf(invocation.getArgument(0)));
                     return new Processes.Result(0, "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\","
@@ -456,7 +456,7 @@ class PiCodingRuntimeTest {
         var workload = mock(DockerWorkloads.Workload.class);
         when(workload.execute(List.of("pi", "--version"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "0.85.1"));
         when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, ""));
-        when(workload.execute(anyList(), eq(60), anyInt(), any()))
+        when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
                 .thenAnswer(invocation -> {
                     java.util.function.Consumer<String> observer = invocation.getArgument(3);
                     String frame = outcome.equals("provider")
@@ -601,7 +601,7 @@ class PiCodingRuntimeTest {
                 .thenReturn(new Processes.Result(0, "0.85.1"));
         when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30, Processes.OUTPUT_LIMIT, null))
                 .thenReturn(new Processes.Result(0, ""));
-        when(workload.execute(anyList(), eq(60), anyInt(), any()))
+        when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
                 .thenReturn(new Processes.Result(0, output));
         var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi("pi:image", "p", "m", null, null, "secret-key",
                 null, null, null, false));

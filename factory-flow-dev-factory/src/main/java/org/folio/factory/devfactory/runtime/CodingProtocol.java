@@ -70,8 +70,10 @@ final class CodingProtocol {
     }
 
     /**
-     * Both runtimes repeat every staged image as base64 in their event stream (Pi: the input message twice and
-     * the final summary; Claude Code: the tool result), so the output budget grows with the staged images.
+     * Both runtimes repeat every staged image as base64 in their event stream, so their limit grows with the
+     * staged images. For Pi it is the total output budget (the input message twice and the final summary). For
+     * Claude Code it is the limit of one output line: the tool result of an opened image holds it twice, and the
+     * CLI sends an image it cannot decode unchanged.
      */
     static int eventStreamLimit(int base, CodingRequest request) {
         long images = request.attachments().stream()

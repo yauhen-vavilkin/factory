@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.runtime;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 
@@ -20,6 +21,7 @@ import java.util.function.Consumer;
  * they are in Jira at that time. The files go outside {@code /workspace}, so they never reach the candidate.
  * An image that cannot be provided is recorded in the request with the reason, never a reason to fail the attempt.
  */
+@Slf4j
 public final class ImageStagingRuntime implements CodingRuntime {
     static final String DIRECTORY = "/tmp/factory-attachments";
 
@@ -68,7 +70,7 @@ public final class ImageStagingRuntime implements CodingRuntime {
                 resolved.add(resolve(attachment, files.size(), temporary, files));
             }
             copyInto(workload, temporary, files, resolved);
-            progress.accept(stagedEvent(files, resolved));
+            reportStaged(progress, stagedEvent(files, resolved));
             return request.withAttachments(resolved);
         } finally {
             CandidateFreezer.cleanup(temporary);
@@ -85,6 +87,15 @@ public final class ImageStagingRuntime implements CodingRuntime {
         } catch (RuntimeException e) {
             files.clear();
             resolved.replaceAll(a -> a.path().isBlank() ? a : a.skipped("could not be copied into the workload"));
+        }
+    }
+
+    /** The progress consumer may throw, for example when its audit write fails; that must not stop the attempt. */
+    private void reportStaged(Consumer<Map<String, Object>> progress, Map<String, Object> event) {
+        try {
+            progress.accept(event);
+        } catch (RuntimeException e) {
+            log.warn("Could not save the staged images event: {}", delegate.redact(String.valueOf(e.getMessage())));
         }
     }
 

@@ -111,16 +111,18 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
             String prompt = CodingProtocol.prompt(request);
             copyInput(workload, temporary, run.model(), prompt);
             protocol.prompt(prompt);
-            var streamed = workload.stream(command(run, config.maxTurns()), timeoutSeconds, this::redact, line -> {
-                protocol.accept(line);
-                return !protocol.failed();
-            });
+            int lineLimit = CodingProtocol.eventStreamLimit(Processes.STREAM_LINE_LIMIT, request);
+            var streamed = workload.stream(command(run, config.maxTurns()), timeoutSeconds, lineLimit, this::redact,
+                    line -> {
+                        protocol.accept(line);
+                        return !protocol.failed();
+                    });
             if (streamed.outputUnread())
                 // The reader still owns the parser state, so this outcome must not read it.
                 return CodingOutcome.failed("OUTPUT_UNREAD", "Claude Code ended, but Factory could not finish"
                         + " reading its output in time, often because the Factory database was slow. Retry the task.",
                         Map.of());
-            return protocol.outcome(streamed, timeoutSeconds);
+            return protocol.outcome(streamed, timeoutSeconds, lineLimit);
         } finally {
             CandidateFreezer.cleanup(temporary);
         }

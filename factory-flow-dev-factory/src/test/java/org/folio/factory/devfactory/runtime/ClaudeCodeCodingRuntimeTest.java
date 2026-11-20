@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.runtime;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.json.JsonMapper;
@@ -71,7 +72,7 @@ class ClaudeCodeCodingRuntimeTest {
         }).when(workload).copy(anyString(), eq("/tmp/factory-claude"));
         var events = new ArrayList<Map<String, Object>>();
         var transcript = new ArrayList<CodingTranscripts.Entry>();
-        when(workload.stream(anyList(), eq(60), any(), any()))
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
                 .thenAnswer(call -> {
                     List<String> argv = call.getArgument(0);
                     assertThat(argv).containsSubsequence("--model", "custom/Model-1")
@@ -85,9 +86,9 @@ class ClaudeCodeCodingRuntimeTest {
                             .containsSubsequence("--max-turns", "10", "--effort", "high")
                             // Without --bare the CLI offers WebFetch; settings still come from no source.
                             .doesNotContain("--bare", "secret-key", "secret-token", "--continue", "--resume");
-                    UnaryOperator<String> redactor = call.getArgument(2);
+                    UnaryOperator<String> redactor = call.getArgument(3);
                     assertThat(redactor.apply("stderr secret-key")).isEqualTo("stderr [REDACTED]");
-                    return feed(call.getArgument(3), INIT + RESULT, 0, "");
+                    return feed(call.getArgument(4), INIT + RESULT, 0, "");
                 });
         var request = request().withDecision(new CodingRequest.ConfirmedDecision(
                 "decision", "PRODUCT_REQUIREMENTS", "Which API?", "Use public API"));
@@ -119,14 +120,14 @@ class ClaudeCodeCodingRuntimeTest {
                     "CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192").doesNotContain("secret-token", "gateway.example");
             return null;
         }).when(workload).copy(anyString(), eq("/tmp/factory-claude"));
-        when(workload.stream(anyList(), eq(60), any(), any())).thenAnswer(call -> {
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any())).thenAnswer(call -> {
             List<String> argv = call.getArgument(0);
             assertThat(argv).containsSubsequence("--model", "glm-5.3", "--max-turns", "10", "--effort", "low")
                     .doesNotContain("zai-secret", "custom/Model-1");
-            UnaryOperator<String> redactor = call.getArgument(2);
+            UnaryOperator<String> redactor = call.getArgument(3);
             assertThat(redactor.apply("zai-secret secret-key secret-token"))
                     .isEqualTo("[REDACTED] [REDACTED] [REDACTED]");
-            return feed(call.getArgument(3), INIT.replace("custom/Model-1", "glm-5.3") + RESULT, 0, "");
+            return feed(call.getArgument(4), INIT.replace("custom/Model-1", "glm-5.3") + RESULT, 0, "");
         });
         var base = request();
         var request = new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),
@@ -163,10 +164,10 @@ class ClaudeCodeCodingRuntimeTest {
     void aRunWithoutSettingsUsesTheDefaultModelItsEffortAndTheTurnLimitFromEnv() {
         var runtime = runtime("api-key");
         var workload = workload();
-        when(workload.stream(anyList(), eq(60), any(), any())).thenAnswer(call -> {
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any())).thenAnswer(call -> {
             List<String> argv = call.getArgument(0);
             assertThat(argv).containsSubsequence("--model", "custom/Model-1", "--max-turns", "10", "--effort", "high");
-            return feed(call.getArgument(3), INIT + RESULT, 0, "");
+            return feed(call.getArgument(4), INIT + RESULT, 0, "");
         });
 
         assertThat(runtime.code(workload, request(), 60, event -> {}, CodingTranscripts.NONE).status())
@@ -178,9 +179,9 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void transportFailureRetainsPartialUsageAndNeverPersistsRawDiagnostics() {
         var workload = workload();
-        when(workload.stream(anyList(), eq(60), any(), any()))
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
                 .thenAnswer(call -> {
-                    Predicate<String> lines = call.getArgument(3);
+                    Predicate<String> lines = call.getArgument(4);
                     lines.test(assistant("a", 5));
                     throw new IllegalStateException("private request secret-key secret-token");
                 });
@@ -204,7 +205,7 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(outcome.failure().message()).startsWith("Factory could not prepare or start Claude Code")
                 .doesNotContain("secret-key", "no such container");
         assertThat(transcript).extracting(CodingTranscripts.Entry::kind).containsExactly("note");
-        verify(workload, never()).stream(anyList(), anyInt(), any(), any());
+        verify(workload, never()).stream(anyList(), anyInt(), anyInt(), any(), any());
     }
 
     @Test
@@ -222,8 +223,8 @@ class ClaudeCodeCodingRuntimeTest {
     void streamStopsAtTheFirstLineThatFailsTheAttempt() {
         var workload = workload();
         var answers = new ArrayList<Boolean>();
-        when(workload.stream(anyList(), eq(60), any(), any())).thenAnswer(call -> {
-            Predicate<String> lines = call.getArgument(3);
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any())).thenAnswer(call -> {
+            Predicate<String> lines = call.getArgument(4);
             for (String line : List.of(INIT.strip(), "not json", RESULT.strip())) {
                 boolean keepReading = lines.test(line);
                 answers.add(keepReading);
@@ -240,7 +241,7 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void aReaderThatIsStillBusyNeverHasItsStateReadForTheOutcome() {
         var workload = workload();
-        when(workload.stream(anyList(), eq(60), any(), any()))
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
                 .thenReturn(new Processes.Streamed(0, false, false, "", true));
         var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(outcome.failure().code()).isEqualTo("OUTPUT_UNREAD");
@@ -250,9 +251,9 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void timeLimitAndOversizedLineStopTheAttemptWithPlainReasons() {
         var workload = workload();
-        when(workload.stream(anyList(), eq(1800), any(), any()))
+        when(workload.stream(anyList(), eq(1800), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
                 .thenAnswer(call -> {
-                    feed(call.getArgument(3), INIT, -1, "");
+                    feed(call.getArgument(4), INIT, -1, "");
                     return new Processes.Streamed(-1, true, false, "", false);
                 });
         var timedOut = runtime("api-key").code(workload, request(), 1800, event -> {}, CodingTranscripts.NONE);
@@ -261,7 +262,7 @@ class ClaudeCodeCodingRuntimeTest {
                 + " stopped it. Start a new run with a lower effort or narrower instructions, or raise the time"
                 + " limit.");
 
-        when(workload.stream(anyList(), eq(60), any(), any()))
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
                 .thenReturn(new Processes.Streamed(137, false, true, "", false));
         var oversized = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(oversized.failure().code()).isEqualTo("FRAME_TOO_LARGE");
@@ -343,7 +344,7 @@ class ClaudeCodeCodingRuntimeTest {
                 e -> { }, CodingTranscripts.NONE);
         protocol.accept(INIT);
         var exited = protocol.outcome(new Processes.Streamed(2, false, false,
-                "y".repeat(5000) + "\nfatal: token secret-key rejected", false), 60);
+                "y".repeat(5000) + "\nfatal: token secret-key rejected", false), 60, Processes.STREAM_LINE_LIMIT);
         assertThat(exited.failure().code()).isEqualTo("RUNTIME_EXIT");
         assertThat(exited.failure().message())
                 .startsWith("Claude Code exited with code 2 before it returned a result. Check the coding runtime")
@@ -352,7 +353,8 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(exited.failure().message().length()).isLessThan(480);
 
         var docker = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s, e -> { }, CodingTranscripts.NONE)
-                .outcome(new Processes.Streamed(126, false, false, "OCI runtime exec failed", false), 60);
+                .outcome(new Processes.Streamed(126, false, false, "OCI runtime exec failed", false), 60,
+                        Processes.STREAM_LINE_LIMIT);
         assertThat(docker.failure().code()).isEqualTo("RUNTIME_ERROR");
         assertThat(docker.failure().message()).contains(
                 "Docker could not start Claude Code in the coding container (exit 126)", "OCI runtime exec failed");
@@ -678,6 +680,39 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(outcome.metrics().toString()).doesNotContain("AAAA");
     }
 
+    /**
+     * Claude Code repeats an opened image twice in one line, in the tool result and in tool_use_result. When the
+     * CLI cannot decode the image it sends the file unchanged, so that line can pass 8 MiB: a run with staged
+     * images reads it, a run without them still stops.
+     */
+    @Test
+    void anImageEchoOverTheBaseLineLimitIsReadOnlyWhenImagesAreStaged(@TempDir Path directory) throws Exception {
+        String data = "A".repeat(4_700_000);
+        String echo = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\","
+                + "\"tool_use_id\":\"toolu_1\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"base64\","
+                + "\"data\":\"" + data + "\",\"media_type\":\"image/png\"}}]}]},\"tool_use_result\":{\"type\":\"image\","
+                + "\"file\":{\"base64\":\"" + data + "\",\"type\":\"image/png\",\"originalSize\":3500000}}}";
+        Path output = Files.writeString(directory.resolve("stream.jsonl"), INIT + echo + "\n" + RESULT);
+        var image = new CodingRequest.Attachment("1", "a.png", "image/png", 3_500_000,
+                "/tmp/factory-attachments/img-1.png", "");
+
+        var staged = streamFrom(output, request().withAttachments(List.of(image)));
+        var plain = streamFrom(output, request());
+
+        assertThat(echo.length()).isGreaterThan(Processes.STREAM_LINE_LIMIT);
+        assertThat(staged.status()).as(staged.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(plain.failure().code()).isEqualTo("FRAME_TOO_LARGE");
+        assertThat(plain.failure().message()).contains("larger than 8 MB");
+    }
+
+    /** The CLI output comes from a local file through the real line reader, with the limit the runtime chose. */
+    private static CodingOutcome streamFrom(Path output, CodingRequest request) {
+        var workload = workload();
+        when(workload.stream(anyList(), eq(60), anyInt(), any(), any())).thenAnswer(call -> Processes.stream(null,
+                List.of("cat", output.toString()), 60, call.getArgument(2), call.getArgument(3), call.getArgument(4)));
+        return runtime("api-key").code(workload, request, 60, event -> {}, CodingTranscripts.NONE);
+    }
+
     @Test
     void imagesAreGivenOnlyToAModelThatSaysItReadsThem() {
         var reads = new ModelEntry("reads", "anthropic-messages", "http://gateway.example/anthropic", "api-key",
@@ -700,7 +735,8 @@ class ClaudeCodeCodingRuntimeTest {
         var protocol = new ClaudeCodeProtocol("custom/Model-1", maxTurns, s -> s.replace("secret-key", "[REDACTED]"),
                 e -> {}, CodingTranscripts.NONE);
         text.lines().forEach(protocol);
-        return protocol.outcome(new Processes.Streamed(exitCode, false, false, "", false), 60);
+        return protocol.outcome(new Processes.Streamed(exitCode, false, false, "", false), 60,
+                Processes.STREAM_LINE_LIMIT);
     }
 
     private static Processes.Streamed feed(Predicate<String> lines, String text, int exitCode, String stderr) {
@@ -726,7 +762,7 @@ class ClaudeCodeCodingRuntimeTest {
 
     /** The outcome of a CLI run that exited with 0 within its time limit. */
     static CodingOutcome finish(ClaudeCodeProtocol protocol) {
-        return protocol.outcome(new Processes.Streamed(0, false, false, "", false), 60);
+        return protocol.outcome(new Processes.Streamed(0, false, false, "", false), 60, Processes.STREAM_LINE_LIMIT);
     }
 
     static ClaudeCodeCodingRuntime runtime(String authentication) {

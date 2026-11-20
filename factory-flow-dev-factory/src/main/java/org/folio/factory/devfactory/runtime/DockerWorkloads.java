@@ -390,13 +390,13 @@ public class DockerWorkloads {
             command.addAll(argv);
             return Processes.run(null, command, timeout, Map.of(), outputLimit, stdoutLine);
         }
-        public Processes.Streamed stream(List<String> argv, int timeout,
+        public Processes.Streamed stream(List<String> argv, int timeout, int lineLimit,
                                          UnaryOperator<String> redactor,
                                          Predicate<String> stdoutLine) {
             if (stopped) throw new IllegalStateException("Workload is stopped");
             var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
             command.addAll(argv);
-            return Processes.stream(null, command, timeout, redactor, stdoutLine);
+            return Processes.stream(null, command, timeout, lineLimit, redactor, stdoutLine);
         }
         /**
          * For the plan's own build and test command: a verbose suite is not a failure, so only the output

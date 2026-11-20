@@ -99,15 +99,15 @@ public final class Processes {
 
     /**
      * Gives each stdout line to {@code stdoutLine} as it arrives and keeps no stdout in memory. There is
-     * no total output limit. A single line over {@link #STREAM_LINE_LIMIT} bytes stops the command, and so
-     * does {@code stdoutLine} returning false. Only the last redacted stderr lines are kept.
+     * no total output limit. A single line over {@code lineLimit} bytes stops the command, and so does
+     * {@code stdoutLine} returning false. Only the last redacted stderr lines are kept.
      */
-    public static Streamed stream(Path directory, List<String> argv, int seconds,
+    public static Streamed stream(Path directory, List<String> argv, int seconds, int lineLimit,
                                   UnaryOperator<String> redactor, Predicate<String> stdoutLine) {
         Process process = null;
         try {
             process = start(directory, argv, Map.of());
-            return awaitStream(process, seconds, new StderrTail(redactor), stdoutLine);
+            return awaitStream(process, seconds, lineLimit, new StderrTail(redactor), stdoutLine);
         } catch (InterruptedException e) {
             process.destroyForcibly();
             Thread.currentThread().interrupt();
@@ -117,12 +117,12 @@ public final class Processes {
         }
     }
 
-    private static Streamed awaitStream(Process process, int seconds, StderrTail stderr,
+    private static Streamed awaitStream(Process process, int seconds, int lineLimit, StderrTail stderr,
                                         Predicate<String> stdoutLine) throws InterruptedException {
         var lineTooLarge = new AtomicBoolean();
         var readerFailure = new AtomicReference<RuntimeException>();
         var stdoutReader = Thread.ofVirtual().start(() -> readLines(process, process.getInputStream(),
-                STREAM_LINE_LIMIT, guarded(stdoutLine, readerFailure), () -> stopOnLargeLine(lineTooLarge)));
+                lineLimit, guarded(stdoutLine, readerFailure), () -> stopOnLargeLine(lineTooLarge)));
         var stderrReader = Thread.ofVirtual().start(() -> readLines(process, process.getErrorStream(),
                 STDERR_TAIL, stderr::addLine, stderr::addSkippedLine));
         var timedOut = !process.waitFor(seconds, TimeUnit.SECONDS);

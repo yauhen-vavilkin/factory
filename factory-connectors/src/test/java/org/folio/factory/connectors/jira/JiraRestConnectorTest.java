@@ -39,7 +39,8 @@ class JiraRestConnectorTest {
                  "labels": ["ai-factory"],
                  "created": "2026-10-01T09:30:00.000+0000",
                  "project": {"key": "MGRAPPS"},
-                 "components": [{"name": "backend"}, {"name": "api"}]}},
+                 "components": [{"name": "backend"}, {"name": "api"}],
+                 "attachment": [{"id": "20001", "filename": "screen.png", "mimeType": "image/png", "size": 1024}]}},
               {"id": "10002", "key": "MGRENTITLE-7", "fields": {
                  "summary": "Blank optional fields",
                  "description": "Describe the work",
@@ -206,7 +207,7 @@ class JiraRestConnectorTest {
                         {"jql": "sprint = 4711 ORDER BY created ASC", "maxResults": 50,
                          "fields": ["summary", "description", "status", "issuetype",
                                     "labels", "project", "components", "created",
-                                    "issuelinks", "comment"]}
+                                    "issuelinks", "comment", "attachment"]}
                         """))
                 .andExpect(jsonPath("$.nextPageToken").doesNotExist())
                 .andRespond(withSuccess(SEARCH_PAGE_ONE, MediaType.APPLICATION_JSON));
@@ -236,6 +237,8 @@ class JiraRestConnectorTest {
         assertThat(allPages.get(0).issue().summary()).isEqualTo("Entitlement dependency check");
         assertThat(allPages.get(0).issue().status()).isEqualTo("To Do");
         assertThat(allPages.get(0).issue().labels()).containsExactly("ai-factory");
+        assertThat(allPages.get(0).issue().raw().path("fields").path("attachment").path(0).path("filename")
+                .asString()).isEqualTo("screen.png");
         server.verify();
     }
 

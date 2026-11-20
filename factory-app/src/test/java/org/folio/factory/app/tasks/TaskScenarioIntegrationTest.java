@@ -142,7 +142,11 @@ class TaskScenarioIntegrationTest {
                 issue("8209", "MODBAR-209", "MODBAR", "Base branch does not build", "2026-10-01T09:08:00.000+0000",
                         ""),
                 issue("8210", "MODBAR-210", "MODBAR", "GitHub rate limit", "2026-10-01T09:09:00.000+0000", ""),
-                issue("8211", "MODBAR-211", "MODBAR", "Clean-up not confirmed", "2026-10-01T09:10:00.000+0000", ""));
+                issue("8211", "MODBAR-211", "MODBAR", "Clean-up not confirmed", "2026-10-01T09:10:00.000+0000", ""),
+                issue("8212", "MODBAR-212", "MODBAR", "Match the screenshot", "2026-10-01T09:11:00.000+0000",
+                        ", \"attachment\": [{\"id\": \"30001\", \"filename\": \"form.png\", \"mimeType\": \"image/png\","
+                                + " \"size\": 2048}, {\"id\": \"30002\", \"filename\": \"notes.txt\","
+                                + " \"mimeType\": \"text/plain\", \"size\": 100}]"));
         assertThat(discovery.sync().complete()).isTrue();
     }
 
@@ -470,6 +474,19 @@ class TaskScenarioIntegrationTest {
         assertThat(outcomes.refresh(attempt.getId()).state())
                 .isEqualTo(TaskOutcomeService.AttemptOutcome.State.PR_READY);
         assertThat(installations.findById(TaskInstallation.ID).orElseThrow().getActiveAttemptId()).isNull();
+    }
+
+    /** The ticket's images reach the agent: the scan keeps their metadata and the run's coding request carries it. */
+    @Test
+    void theImagesOfTheTicketReachTheCodingRequestOfARunFromMyTasks() {
+        UUID taskId = taskId("8212");
+        pullRequestOpensAs(42);
+
+        assertRedirect(postRun(taskId));
+
+        assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.PR_READY);
+        assertThat(codingRequests.getLast().attachments()).containsExactly(
+                new CodingRequest.Attachment("30001", "form.png", "image/png", 2048, "", ""));
     }
 
     /** The pages of a failed attempt: its cause on each page, no pull request and the form for the next one. */

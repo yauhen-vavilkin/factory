@@ -41,7 +41,7 @@ class ProcessesTest {
             // About 3 MB, more than the 2 MB total limit of run().
             var streamed = executor.submit(() -> Processes.stream(null, List.of("/bin/sh", "-c",
                     "printf 'first\\n'; sleep 1; i=0; while [ $i -lt 30000 ]; do printf '%0100d\\n' $i; i=$((i+1)); done;"
-                            + " printf 'last'"), 30, s -> s, line -> {
+                            + " printf 'last'"), 30, Processes.STREAM_LINE_LIMIT, s -> s, line -> {
                         first.countDown();
                         lines.incrementAndGet();
                         return true;
@@ -61,7 +61,8 @@ class ProcessesTest {
         var seen = new java.util.ArrayList<String>();
         var tooLarge = Processes.stream(null, List.of("/bin/sh", "-c",
                 "printf 'before\\n'; head -c " + (Processes.STREAM_LINE_LIMIT + 1)
-                        + " /dev/zero | tr '\\0' x; printf '\\nafter\\n'; exec sleep 20"), 30, s -> s, line -> {
+                        + " /dev/zero | tr '\\0' x; printf '\\nafter\\n'; exec sleep 20"), 30,
+                Processes.STREAM_LINE_LIMIT, s -> s, line -> {
                     seen.add(line);
                     return true;
                 });
@@ -71,9 +72,21 @@ class ProcessesTest {
 
         long started = System.nanoTime();
         var stopped = Processes.stream(null, List.of("/bin/sh", "-c", "printf 'one\\ntwo\\n'; exec sleep 20"),
-                30, s -> s, line -> !line.equals("two"));
+                30, Processes.STREAM_LINE_LIMIT, s -> s, line -> !line.equals("two"));
         assertThat(stopped.exitCode()).isNotZero();
         assertThat(java.time.Duration.ofNanos(System.nanoTime() - started)).isLessThan(java.time.Duration.ofSeconds(10));
+    }
+
+    @Test
+    void streamGivesALineWithinALargerLimitWhole() {
+        var seen = new java.util.ArrayList<String>();
+        var result = Processes.stream(null, List.of("/bin/sh", "-c", "head -c " + (Processes.STREAM_LINE_LIMIT + 1)
+                + " /dev/zero | tr '\\0' x; printf '\\nafter\\n'"), 30, Processes.STREAM_LINE_LIMIT + 2, s -> s,
+                seen::add);
+        assertThat(result.lineTooLarge()).isFalse();
+        assertThat(seen).hasSize(2);
+        assertThat(seen.getFirst()).hasSize(Processes.STREAM_LINE_LIMIT + 1);
+        assertThat(seen.getLast()).isEqualTo("after");
     }
 
     @Test
@@ -84,7 +97,8 @@ class ProcessesTest {
         var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             var streamed = executor.submit(() -> Processes.stream(null,
-                    List.of("/bin/sh", "-c", "printf 'first\\nlast\\n'"), 30, s -> s, line -> {
+                    List.of("/bin/sh", "-c", "printf 'first\\nlast\\n'"), 30, Processes.STREAM_LINE_LIMIT, s -> s,
+                    line -> {
                         if (line.equals("last")) {
                             readingLast.countDown();
                             awaitRelease(release);
@@ -113,12 +127,13 @@ class ProcessesTest {
 
     @Test
     void streamReportsTheTimeLimitAndKeepsOnlyARedactedStderrTail() {
-        var timedOut = Processes.stream(null, List.of("/bin/sh", "-c", "exec sleep 2"), 1, s -> s, line -> true);
+        var timedOut = Processes.stream(null, List.of("/bin/sh", "-c", "exec sleep 2"), 1,
+                Processes.STREAM_LINE_LIMIT, s -> s, line -> true);
         assertThat(timedOut.timedOut()).isTrue();
 
         var result = Processes.stream(null, List.of("/bin/sh", "-c",
                 "i=0; while [ $i -lt 2000 ]; do printf 'noise %0100d\\n' $i >&2; i=$((i+1)); done;"
-                        + " printf 'fatal: secret-key rejected' >&2; exit 3"), 30,
+                        + " printf 'fatal: secret-key rejected' >&2; exit 3"), 30, Processes.STREAM_LINE_LIMIT,
                 s -> s.replace("secret-key", "[REDACTED]"), line -> true);
         assertThat(result.exitCode()).isEqualTo(3);
         assertThat(result.stderrTail()).endsWith("fatal: [REDACTED] rejected").doesNotContain("secret-key")

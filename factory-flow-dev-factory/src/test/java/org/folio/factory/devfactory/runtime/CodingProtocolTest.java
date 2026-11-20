@@ -147,7 +147,7 @@ class CodingProtocolTest {
     @Test
     void promptWithoutACommandIsUnchanged() {
         assertThat(CodingProtocol.prompt(request())).doesNotContain("independently verifies the frozen candidate by running")
-                .contains("Factory independently verifies the frozen candidate. Do not claim checks");
+                .contains("\"evidence\":\"bounded repository evidence\"}\n\nFactory CodingRequest JSON:\n");
     }
 
     @Test

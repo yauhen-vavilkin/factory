@@ -407,15 +407,18 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         return value.isIntegralNumber() && value.asLong() >= 0 ? value.asLong() : null;
     }
 
-    /** The outcome of a finished command: Factory's own stops first, then what the CLI reported. */
-    CodingOutcome outcome(Processes.Streamed run, int timeoutSeconds) {
+    /**
+     * The outcome of a finished command: Factory's own stops first, then what the CLI reported. {@code lineLimit}
+     * is the line limit the command ran with.
+     */
+    CodingOutcome outcome(Processes.Streamed run, int timeoutSeconds, int lineLimit) {
         if (run.timedOut()) {
             long minutes = Math.max(1, Math.round(timeoutSeconds / 60.0));
             return fail("TIME_LIMIT", TaskStops.timeLimitReason(minutes));
         }
         if (run.lineTooLarge() && failure == null) {
             return fail("FRAME_TOO_LARGE", "Claude Code wrote one output line larger than "
-                    + Processes.STREAM_LINE_LIMIT / (1024 * 1024) + " MB, so Factory stopped it. Retry the task;"
+                    + lineLimit / (1024 * 1024) + " MB, so Factory stopped it. Retry the task;"
                     + " if it happens again, look in the transcript for the tool that returned so much output.");
         }
         return outcome(run.exitCode(), run.stderrTail());

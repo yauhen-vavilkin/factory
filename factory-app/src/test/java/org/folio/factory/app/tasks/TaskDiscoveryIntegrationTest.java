@@ -155,7 +155,7 @@ class TaskDiscoveryIntegrationTest {
     }
 
     @Test
-    void scanSearchesMyTasksAnonymouslyWithLinksAndCommentsAndNeverWritesToJira() {
+    void scanSearchesMyTasksAnonymouslyWithLinksCommentsAndAttachmentsAndNeverWritesToJira() {
         stubFullSearch();
 
         discovery.sync();
@@ -164,7 +164,8 @@ class TaskDiscoveryIntegrationTest {
                 .withHeader("Authorization", absent())
                 .withRequestBody(matchingJsonPath("$.jql", equalTo(QUERY)))
                 .withRequestBody(matchingJsonPath("$.fields[?(@ == 'issuelinks')]"))
-                .withRequestBody(matchingJsonPath("$.fields[?(@ == 'comment')]")));
+                .withRequestBody(matchingJsonPath("$.fields[?(@ == 'comment')]"))
+                .withRequestBody(matchingJsonPath("$.fields[?(@ == 'attachment')]")));
         assertThat(jira.getAllServeEvents()).allSatisfy(event -> {
             assertThat(event.getRequest().getMethod().getName()).isEqualTo("POST");
             assertThat(event.getRequest().getUrl()).isEqualTo("/rest/api/2/search/jql");

@@ -40,7 +40,7 @@ public class JiraRestConnector implements JiraConnector, JiraSourceConnector, Co
     private static final int SEARCH_PAGE_SIZE = 50;
     private static final List<String> SEARCH_FIELDS = List.of(
             "summary", "description", "status", "issuetype", "labels", "project", "components", "created",
-            "issuelinks", "comment");
+            "issuelinks", "comment", "attachment");
 
     /** Where Jira Cloud redirects attachment downloads to; it is reached without Jira credentials. */
     private static final String MEDIA_HOST = "api.media.atlassian.com";
