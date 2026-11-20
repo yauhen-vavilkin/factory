@@ -608,7 +608,7 @@ class DemoConsole {
 
     /** A finished run whose coding step reported its tokens without a price, as a model without one does. */
     private PipelineExecution unpricedExecution() {
-        var execution = bareExecution("0.6.0", ExecutionStatus.COMPLETED, 10);
+        var execution = bareExecution(FeedbackArtifacts.VERSION, ExecutionStatus.COMPLETED, 10);
         var settings = settingsByRun.computeIfAbsent(execution.getId(), id -> RUNS.get(settingsByRun.size() % 3));
         report(execution, AuditEventType.STEP_COMPLETED, 2, Map.of("model", settings.modelId()));
         return execution;

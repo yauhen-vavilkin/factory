@@ -139,7 +139,8 @@
                 <tbody role="rowgroup" th:each="attempt : ${attempts}"
                        th:classappend="${attempt.executionId() != null} ? 'dev-row-open'">
                 <tr role="row" class="runs-main">
-                    <td role="cell" class="runs-name"><a class="dev-row-link" th:if="${attempt.executionId() != null}"
+                    <td role="cell" class="runs-name" th:title="${attempt.kindTitle()}"><a class="dev-row-link"
+                            th:if="${attempt.executionId() != null}"
                             th:href="@{'/executions/' + ${attempt.executionId()}}"
                             th:attr="aria-label='Open run ' + ${attempt.ordinal()}"><strong class="attempt-title"
                                 th:text="'Run ' + ${attempt.ordinal()}">Run 1</strong></a><strong

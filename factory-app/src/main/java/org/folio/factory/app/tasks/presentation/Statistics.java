@@ -31,6 +31,10 @@ public record Statistics(Tasks tasks, Runs runs, Money money, List<ModelRow> mod
     public record Money(List<Figure> figures, String unpricedNote) {
     }
 
+    /** The Developer Flow line of the Dashboard: what the runs cost, and the note of {@link Money} on them. */
+    public record Spent(String amount, String unpricedNote) {
+    }
+
     /**
      * One model and effort: its runs, the pull requests they opened, the average of the runs with a price ("—" when
      * none has one) and what they cost. {@code spentNote} is true when {@code spent} is words, not a figure.

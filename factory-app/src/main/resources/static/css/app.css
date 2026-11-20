@@ -1217,13 +1217,10 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-row-meta-dots > * + * { margin-left: 0; }
 .dev-row-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
 .dev-row-meta a:focus-visible { outline-offset: -2px; }
-/* A group on the dashboard keeps its facts whole: on a narrow row they wrap as a whole. */
-.dev-row-meta-quoted { display: flex; flex-wrap: wrap; }
-.dev-row-meta-quoted > * { flex: none; }
 .dev-row-action { display: flex; justify-content: flex-end; }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
-/* Amount and chip in fixed columns, so they line up from row to row in Runs of the task page and Cost per task. */
+/* The right part of a Ready to run or Cannot run here row on My tasks, at the right edge of the row. */
 .row-cluster {
   flex: none;
   display: grid;
@@ -1234,11 +1231,6 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
   column-gap: 12px;
   margin-left: auto;
 }
-.row-cluster > .row-amount { grid-column: 1; }
-.row-cluster > .chip { grid-column: 2; justify-self: start; }
-/* Cost per task and Runs of the task page: the amounts stand in one column and every chip ends at the right edge of the row. */
-.row-cluster-status { grid-template-columns: 88px minmax(150px, auto); height: auto; min-height: 21px; row-gap: 8px; }
-.row-cluster-status > .chip { justify-self: end; }
 /* Ready to run: the effort choice ends at the edge of Run in every row. Only a task added by key has Remove from
    list, before the effort choice, so it takes no column in the other rows. */
 .row-cluster-ready { display: flex; height: auto; align-self: center; }

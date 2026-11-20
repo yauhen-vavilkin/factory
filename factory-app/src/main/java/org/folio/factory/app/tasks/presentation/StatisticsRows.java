@@ -51,11 +51,14 @@ public class StatisticsRows {
         return Optional.of(new Statistics(tasksPart(costs), runsPart(period), moneyPart(costs), models(period)));
     }
 
-    /** "$1.90": what the runs that started at or after {@code since} cost; empty when none started. */
-    public Optional<String> spentSince(Instant since) {
-        var period = counted(since);
-        return period.isEmpty() ? Optional.empty()
-                : Optional.of(amount(money(period.stream().flatMap(task -> task.attempts().stream()).toList())));
+    /**
+     * "$1.90" and "1 run has no price": what the runs that started at or after {@code since} cost, with the note
+     * the Statistics tab shows for them; empty when none started.
+     */
+    public Optional<Statistics.Spent> spentSince(Instant since) {
+        var attempts = counted(since).stream().flatMap(task -> task.attempts().stream()).toList();
+        return attempts.isEmpty() ? Optional.empty()
+                : Optional.of(new Statistics.Spent(amount(money(attempts)), unpricedNote(unpriced(attempts))));
     }
 
     /** The tasks of the period with their runs, the same entries as their view, so each run finds its chip. */
@@ -70,8 +73,7 @@ public class StatisticsRows {
     /** The bucket of the task reads where its PR feedback stands, which takes a few reads per task. */
     private TaskCost taskCost(TaskQuery.PeriodTask task) {
         var result = TaskResult.of(task.view(), feedback.standing(task.view()));
-        var unpriced = task.attempts().stream().filter(attempt -> cost(attempt) == null).count();
-        return new TaskCost(result, money(task.attempts()), unpriced);
+        return new TaskCost(result, money(task.attempts()), unpriced(task.attempts()));
     }
 
     /** "7 of 8" reached a pull request, merged, without one; one bar of every bucket. */
@@ -157,7 +159,12 @@ public class StatisticsRows {
         return attempt.state().isInFlight() ? costSoFar(attempt.usage()) : finishedCost(attempt);
     }
 
-    /** "2 runs have no price": the runs whose cost is unknown on the task page; null when there are none. */
+    /** The runs whose cost is unknown on the task page. */
+    private static long unpriced(List<TaskView.AttemptHistoryEntry> attempts) {
+        return attempts.stream().filter(attempt -> cost(attempt) == null).count();
+    }
+
+    /** "2 runs have no price": the note on the {@link #unpriced} runs; null when there are none. */
     private static String unpricedNote(long unpriced) {
         if (unpriced == 0) {
             return null;

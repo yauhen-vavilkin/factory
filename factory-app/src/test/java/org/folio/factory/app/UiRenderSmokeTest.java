@@ -2016,6 +2016,29 @@ class UiRenderSmokeTest {
         assertThat(text(month)).contains("Developer Flow $6.20 spent Statistics");
         assertThat(month).containsPattern(linkTo("/developer/statistics?days=30", "Statistics"));
         assertThat(text(assertRendered("/?days=1", "Dashboard"))).contains("Developer Flow $1.20 spent");
+        // Every run has a price, so the amount has no note.
+        assertThat(dashboard).doesNotContain("no price");
+    }
+
+    @Test
+    void theSpentLineOfTheDashboardSaysInItsTitleHowManyRunsHaveNoPriceAsTheStatisticsTabDoes() {
+        resetTaskData();
+        spendingAttempt(seedTask("7919", "MODBAR-7919", "Task whose run has no price", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, null);
+
+        String unpriced = assertRendered("/", "Dashboard");
+        assertThat(text(unpriced)).contains("Developer Flow $0.00 spent Statistics");
+        assertThat(unpriced).containsPattern("class=\"dash-developer-spent\"[^>]*title=\"1 run has no price\"");
+
+        spendingAttempt(seedTask("7920", "MODBAR-7920", "Task that only failed", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 1_200_000);
+        spendingAttempt(seedTask("7921", "MODBAR-7921", "Another task whose run has no price",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, null);
+        String mixed = assertRendered("/", "Dashboard");
+        assertThat(text(mixed)).contains("Developer Flow $1.20 spent Statistics");
+        assertThat(mixed).containsPattern("class=\"dash-developer-spent\"[^>]*title=\"2 runs have no price\"");
+        assertThat(text(assertRendered("/developer/statistics", "Developer Flow statistics")))
+                .contains("$1.20 Spent", "2 runs have no price");
     }
 
     @Test
@@ -2041,6 +2064,27 @@ class UiRenderSmokeTest {
         spendingAttempt(single, 1, TaskAttempt.State.STOPPED, 400_000);
         assertThat(text(runsBlock(assertRendered("/tasks/" + single.getId(), "Failed"))))
                 .contains("Run 1", "$0.40", "Tokens", "Run 1 400,000").doesNotContain("Total");
+    }
+
+    @Test
+    void theRunNameOfARetrySaysItsKindAndTheFirstLineOfTheInstructionsInItsTitle() {
+        resetTaskData();
+        var task = seedTask("7922", "MODBAR-7922", "Task retried with instructions", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        spendingAttempt(task, 1, TaskAttempt.State.STOPPED, 400_000);
+        spendingAttempt(task, 2, TaskAttempt.State.STOPPED, 200_000);
+        var instructed = spendingAttempt(task, 3, TaskAttempt.State.STOPPED, 100_000);
+        instructed.setRunSettings(JsonMapper.builder().build().writeValueAsString(new CodingRequest.RunSettings(
+                "glm-5.3", "max", "Change only FolioTenantApiClient and its test.\nLeave the rest as it is.")));
+        taskAttempts.save(instructed);
+
+        // The cell cuts what does not fit, so its title has the kind and the quote; a first run has neither.
+        String runs = runsBlock(assertRendered("/tasks/" + task.getId(), "Failed"));
+        assertThat(runs).containsPattern("class=\"runs-name\" title=\"retry with your instructions"
+                        + " &quot;Change only FolioTenantApiClient and its test.&quot;\"")
+                .containsPattern("class=\"runs-name\" title=\"retry\"")
+                .doesNotContain("Leave the rest");
+        assertThat(runs.split("class=\"runs-name\" title=", -1)).hasSize(3);
     }
 
     private TaskAttempt withSettings(TaskAttempt attempt, String modelId, String effort) {

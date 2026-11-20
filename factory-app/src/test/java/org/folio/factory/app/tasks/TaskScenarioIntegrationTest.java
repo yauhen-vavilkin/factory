@@ -74,7 +74,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 
 /**
- * The tier A scenarios of the demo readiness plan that pass on today's code. A person starts each run by
+ * Scenarios of the Developer Flow, numbered in their Javadoc, that pass on today's code. A person starts each run by
  * HTTP as the pages do, the engine advances it in the test thread with the poller off, and the scenario
  * ends on the text of My tasks, the task page and the run page. Only the agent, Docker, delivery, GitHub
  * and Jira are scripted ({@link DevFlowHarness}); every reason, state and artifact comes from the real
@@ -265,7 +265,7 @@ class TaskScenarioIntegrationTest {
         assertNoInternalWording(pages);
     }
 
-    /** Scenario 2. */
+    /** Scenario 2: the agent finishes without changing a file. */
     @Test
     void agentFinishesWithoutChangingAFile() {
         UUID taskId = taskId("8202");

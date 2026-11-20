@@ -434,8 +434,8 @@ Pi settings are `FACTORY_PI_REASONING_EFFORT` and `FACTORY_PI_MAX_OUTPUT_TOKENS`
 An empty `FACTORY_PI_IMAGE` uses `factory-dev-pi:0.85.1-java21`. Pi does not offer a model
 choice yet; it uses the models file only for the price of its model. Claude Code has one
 setting of its own, `FACTORY_CLAUDE_CODE_MAX_TURNS` (400, from 1 to 500): a safety limit,
-not a tuning knob. The common run timeout `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (3600,
-about 360 turns) usually ends a run first. A run that hits either limit loses its work.
+not a tuning knob. The time per step, `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (3600,
+about 360 turns), usually ends a run first. A run that hits either limit loses its work.
 
 #### Models (Claude Code)
 
@@ -560,8 +560,9 @@ and the model next to **Run** under the list, select tasks and press **Run**; se
 [Models](#models-claude-code). The page of a failed task has a **Start run N** form,
 where you can also tell the agent what to do differently.
 A task can run when its Jira project maps to exactly one repository in
-`config/developer-repositories.yaml`; otherwise it is left out of Ready to run, and a
-line under the list names it and says why. The **Configuration** tab shows the Jira query, the assignee and which repository
+`config/developer-repositories.yaml`; otherwise it is listed under **Cannot run here**, one
+row per task with a short cause, and **Set up repositories** opens Where runs go on the
+Configuration tab when a repository would let it run. The **Configuration** tab shows the Jira query, the assignee and which repository
 each Jira project goes to. Before a task is queued, Factory checks that
 your token can push to its delivery repository: folio-org by default, or your
 fork when you set both `<REPO>_SOURCE_REPO` and `<REPO>_DELIVERY_REPO`.
@@ -628,7 +629,7 @@ the models file. `FACTORY_CLAUDE_CODE_IMAGE` and `FACTORY_CLAUDE_CODE_MAX_TURNS`
 | `FACTORY_DEV_FACTORY_REPOSITORIES_FILE` | Compose host path of the repository catalog (default `./config/developer-repositories.yaml`); mounted read-only |
 | `FACTORY_<REPO>_SOURCE_REPO` / `_DELIVERY_REPO` / `_BASE_BRANCH` | Overrides for the bundled catalog entries, `<REPO>` being `SIDECAR`, `MOD_ROLES_KEYCLOAK`, `MGR_TENANT_ENTITLEMENTS` or `MGR_APPLICATIONS`; see [Developer Flow with Docker Compose](#developer-flow-with-docker-compose) |
 | `FACTORY_DEV_FACTORY_GIT_BASE_URL` | Git host the source repositories are read from (default `https://github.com`) |
-| `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` | Time limit of one coding, build or verification run (default `3600`) |
+| `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` | Time per step: the limit of one coding, build or verification step of a run (default `3600`) |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
 | `FACTORY_PI_IMAGE` / `_PROVIDER` / `_MODEL` / `_BASE_URL` / `_API` / `_AUTHENTICATION` / `_API_KEY` / `_REASONING_EFFORT` / `_MAX_OUTPUT_TOKENS` | Pi runtime profile; see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_CLAUDE_CODE_IMAGE` / `FACTORY_CLAUDE_CODE_MAX_TURNS` | Claude Code coding image, and the safety limit of turns in one run (400, from 1 to 500); see [Coding runtime profiles](#coding-runtime-profiles) |

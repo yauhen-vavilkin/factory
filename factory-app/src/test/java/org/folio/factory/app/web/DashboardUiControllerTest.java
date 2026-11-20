@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.tasks.persistence.RunState;
+import org.folio.factory.app.tasks.presentation.Statistics;
 import org.folio.factory.app.tasks.presentation.StatisticsRows;
 import org.folio.factory.app.web.DashboardUiController.RunTile;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
@@ -160,9 +161,10 @@ class DashboardUiControllerTest {
     void dashboard_showsWhatTheDeveloperFlowSpentInTheChosenPeriodOnlyWhenARunStartedInIt() throws Exception {
         stubKpiCounts();
         var since = ArgumentCaptor.forClass(java.time.Instant.class);
-        when(statisticsRows.spentSince(since.capture())).thenReturn(Optional.of("$1.90"), Optional.empty());
+        var spent = new Statistics.Spent("$1.90", "1 run has no price");
+        when(statisticsRows.spentSince(since.capture())).thenReturn(Optional.of(spent), Optional.empty());
 
-        mvc.perform(get("/").param("days", "30")).andExpect(model().attribute("developerSpent", "$1.90"));
+        mvc.perform(get("/").param("days", "30")).andExpect(model().attribute("developerSpent", spent));
         mvc.perform(get("/")).andExpect(model().attributeDoesNotExist("developerSpent"));
 
         // The line counts the runs that started in the period, as the run tiles count runs.

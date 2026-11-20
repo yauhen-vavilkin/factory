@@ -161,8 +161,9 @@ repository on 2026-11-11; git history has them under `docs/superpowers`).
   per task with a short cause chip (the whole sentence on hover) and Set up repositories, and the task
   page still has the stored reason. "cost may be higher" and "cost
   unknown" are no longer printed in Runs: the cost carries the explanation as its tooltip. The last scan
-  time is the tooltip of Scan Jira. A task added by key keeps a small Remove button, which board 1 does
-  not show. The in-progress strip shows the first running task only.
+  time is the tooltip of Scan Jira. A task added by key keeps a small Remove from list button on its
+  Ready to run row, which board 1 does not show; under Cannot run here it has none (recorded below).
+  The in-progress strip shows the first running task only.
 - **The lost question.** The parser (`CodingProtocol.answer`, both runtimes) reads the first JSON value
   after the first line that starts with `FACTORY_DECISION_REQUIRED:`, so a pretty-printed decision, one on
   the next line and a closing code fence are accepted, and any text after the JSON is ignored. The prompt
@@ -170,13 +171,13 @@ repository on 2026-11-11; git history has them under `docs/superpowers`).
   "Needs your answer" is read from the stop reason of the attempt (`TaskStops.asksForAnswer`), not from a
   stored state, so it needs no migration.
 - **Task page.** The result chip of an attempt says "Failed", not a kind such as "Build failed" (board
-  4): the stop reasons have no short kind yet; the full reason is the chip's tooltip and the status
-  card's headline. "Cost and usage" moved into Technical details. The total time and the models of all
-  attempts are no longer in the status card. The answer goes into the next attempt as its instructions:
-  the answer first, then the question, then the agent's text before the question, cut to fit 8000
-  characters. The agent's evidence is shown on the page but not passed on. A task page with a pull
-  request, or one that waits, is not on a board: it keeps "Open pull request" and "PR feedback" or
-  "Open live run" in the status card.
+  4): the stop reasons have no short kind yet; the status card shows the full reason under Reason, and
+  Runs shows its first sentence under each run. "Cost and usage" moved into Technical details. The
+  total time and the models of all attempts are no longer in the status card. The answer goes into the
+  next attempt as its instructions: the answer first, then the question, then the agent's text before
+  the question, cut to fit 8000 characters. The agent's evidence is shown on the page but not passed
+  on. A task page with a pull request, or one that waits, is not on a board: it keeps "Open pull
+  request" and "PR feedback" or "Open live run" in the status card.
 - **Run page while it works.** Activity stays oldest first with the last 20 rows, so "Show 35 earlier"
   and the newest-first order of board 2 are not built. A tool call shows one row once it ends ("Read Foo.java · took 6 ms"); Pi reports no duration, so
   the time between start and end is used. Calls are paired only when the match is certain: when two
@@ -263,7 +264,7 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 ## Left after the live-run polish (2026-11-11)
 
 - **The step time can read past its limit.** The run card counts Implement changes from the step's start against "of 1 h", but the time per step applies to the first build and to the coding separately (`InitialCodingAttempt`), so a long first build can show, for example, "70 min of 1 h" without a stop.
-- **/executions says "Asked a question" where the task says "Needs your answer".** Both name the same stop: the run list reads the run's state (`RunState.ASKED`), the task pages read the attempt's stop reason. Item 2.7 of the demo readiness plan was stopped: `RunState.getLabel()` is also the label of the Dashboard run tiles (a framework page, `DashboardUiController`), and `RunState` gives ASKED also to runs whose question was already answered, where "Needs your answer" would be false. Owner decision: a label for `/executions` only, or leave it.
+- **/executions says "Asked a question" where the task says "Needs your answer".** Both name the same stop: the run list reads the run's state (`RunState.ASKED`), the task pages read the attempt's stop reason. Giving `/executions` the words of the task pages was stopped: `RunState.getLabel()` is also the label of the Dashboard run tiles (a framework page, `DashboardUiController`), and `RunState` gives ASKED also to runs whose question was already answered, where "Needs your answer" would be false. Owner decision: a label for `/executions` only, or leave it.
 
 ## Found by the cleanup audit (2026-11-11), not fixed
 
@@ -304,10 +305,10 @@ The cleanup changed no behavior, so these were recorded instead. None was reprod
   feedback (round N)" has no task key; "Changed files" repeats "Changes" in the PR text; a file and
   line in a PR feedback comment is not a link.
 
-## Left after the demo readiness plan (2026-11-15)
+## Left after the demo preparation (2026-11-15)
 
-Source: `docs/demo-readiness-plan.md`, its "Recorded, not done" list and what its stages saw but did
-not change.
+Source: the plan that prepared the demo on 2026-11-15 (git history has it at 63e8ecc), its "Recorded,
+not done" list and what its stages saw but did not change.
 
 Engine and framework pages, outside that plan's scope:
 
@@ -343,10 +344,11 @@ Developer Flow:
   not through `AttemptFailure.reason`. A round whose checks failed without test reports reads "Checks failed."
   under "Checks could not run: …" (`FeedbackRows.checks`). `StopReasons.checks` and
   `VerificationReceipt.failureReason` word the same causes in two places.
-- **Failed environment checks now offer "Try fixing with the agent".** Item B of the plan changed this
-  deliberate rule for every failure kind; check in a live round that the agent fix helps there.
+- **Failed environment checks now offer "Try fixing with the agent".** Since 2026-11-15 every kind of
+  failed check offers it, which changed a deliberate rule; check in a live round that the agent fix
+  helps there.
 - **Old stored reasons keep old words:** "candidate freeze" in a deadline reason, and "Independent
-  checks failed: <KIND>" in PR feedback states stored before item B.
+  checks failed: <KIND>" in PR feedback states stored before that change.
 - **Needs inspection.** Its run page has no "Close as failed…". After "Close as failed…" on a delivered
   attempt the reason names the branch with an id (`factory/modbar-211-<uuid>`) and the known pull
   request is hidden again.
@@ -374,17 +376,26 @@ Developer Flow:
 
 Tests and the demo console:
 
-- **No page test for "Could not start".** Scenario 12 (a task that cannot start, and the queue notice
-  while Factory's preflight fails) needs its own Spring context with the default GitHub API and a
-  mocked `DeveloperPreflightProbe`, against the plan's "one class, one context". Owner decision.
+- **No page test for "Could not start".** `TaskScenarioIntegrationTest` numbers its scenarios 1 to 11
+  and 13; the missing scenario 12 is a task that cannot start, and the queue notice while Factory's
+  preflight fails. It needs its own Spring context with the default GitHub API and a mocked
+  `DeveloperPreflightProbe`, while all scenarios share the one context of that class. Owner decision.
 - **No scenario drives a patch refused for a model key through the pages**; unit tests and demo seeds
-  cover it. The tier B scenarios (item G) were not written.
+  cover it. These scenarios were not written either: the time limit of a whole run, the turn limit, the
+  output limit, a ready pull request after a clean report, two queued tasks, intake outcomes (issue not
+  found, repository choice needed), a refusal of the publication guard, a fork behind its base, PR
+  feedback clean-up blocked and refresh required, a manual push before a round publishes, and runs
+  started without a task (`POST /flows/dev-factory/trigger`).
 - **`DemoConsole` still seeds finished states by hand** (the reasons through production code). Running
   the scenarios at its startup needs task execution on, which would let its queued tasks start. Seeds
   80017, 80018 and 80019 show every step as Passed on the run page; 80019 stores `DEVELOPMENT_FAILED:`
   for a cause the code stores as `BLOCKED_ENVIRONMENT:`; the delivery of 80020 has no reason, because
   it is a private literal in `DeliveryWorker.notVerified`; every seeded PR feedback round shows $0.00
-  for the round. A Dashboard group whose attempts all have no price is not covered by a test.
+  for the round. A By model and effort row of the Statistics tab whose runs all have no price ("cost
+  unknown") is not covered by a test. The task page turn of a held run (one that needs inspection) while
+  a PR feedback round works is covered by a test
+  (`TaskUiControllerTest.aRunThatNeedsInspectionIsYourTurnWhileAPrFeedbackRoundWorks`) but has no demo
+  seed, so it was never seen on a page.
 
 ## Left after the review of the whole pull request (2026-11-15)
 
@@ -401,5 +412,47 @@ Found by the review of everything since `main` before the merge; fixed findings 
 - **A withdrawn task loses its repository cause on My tasks.** `TaskRows.availableRow` reads the routing
   problem only for a task in state `UNSUPPORTED`. A task whose attempts were all withdrawn and whose
   project then lost its repository, or got several, is `WITHDRAWN`: it shows under Cannot run here as
-  "Cannot run" with the withdrawal text, and Set up repositories is not offered. Found in review, not
-  reproduced.
+  "Cannot run" with "No reason was recorded.", and Set up repositories is not offered. Found in
+  review, not reproduced.
+
+## Left after the review of the last three commits (2026-11-20)
+
+The owner left the live smoke out before the merge. The gaps after it were found by the review of
+531a84d, 5be8c49 and 63e8ecc and by the check of its fixes, and are older than those commits; the fixed
+findings are in the commits of that day.
+
+- **The live smoke was not run before the merge.** No real model, Jira or GitHub ran on the final
+  code; the pages were checked in the demo console instead. To run it:
+  1. In `.env`, remove or raise `FACTORY_CLAUDE_CODE_MAX_TURNS=200` and
+     `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS=1800` and any explicit `FACTORY_TASKS_EXECUTION_DEADLINE` or
+     `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS`, or the old limits win; check that `FACTORY_ZAI_API_KEY` is set.
+  2. On the merged code: `docker compose up -d --build`, `docker compose ps -a`,
+     `curl --fail localhost:8080/actuator/health`.
+  3. On the Configuration tab check the limits (1 h, 2 h, 400), that glm-5.3-flash is ready to run, and
+     Check one task with the chosen key.
+  4. On My tasks set the Model to glm-5.3-flash, select the task and press Run; wait 20 to 60 minutes
+     for the pull request.
+  5. Leave a review comment on the pull request; on the run page press Check PR comments, then Fix 1
+     comment, and check that the round pushes a commit.
+  6. Before step 4, note the Developer Flow spent line of the Dashboard for 30 days. After the smoke,
+     open it again: the line is higher by the smoke's cost, and on the Statistics tab the smoke's task
+     and run are counted.
+- **A task added by key that cannot run stays under Cannot run here.** Add by key takes a task from a
+  project with no repository on purpose (`TaskAdmissionService.addByKey`), so the task is `INELIGIBLE`
+  and shows only under Cannot run here. `CannotRunRow` has no task id and no `addedByKey`, so that row
+  has no Remove from list, and a scan never drops a task added by key
+  (`TaskDiscoveryService.applyCompleteSync`). The row stays until its project gets exactly one
+  repository. A fix: carry `taskId` and `addedByKey` in `CannotRunRow` and give that row its own Remove
+  from list form, the POST to `/tasks/{id}/remove-from-list` that Ready to run uses.
+- **"spent in N runs" counts a run that has not started.** `TaskRows.spentNote` counts every attempt
+  of the task, so a task with two finished runs and a queued third reads "$0.06 spent in 3 runs" on the
+  status card of the task page (MODBAR-838 in the demo console); the Total row of Runs says "3 runs" in
+  the same way (`TaskSpending.total`). A fix counts only the attempts that started (`startedAt`), as
+  `TaskSpending.of` already does; the Total label counts the rows above it, so it may stay as it is.
+- **The run page says "Some usage was not reported" for a run on a model without a price.**
+  `RunUsage.attempts`, the path of every current run, gives the note `INCOMPLETE` ("Some usage was not
+  reported, so the real cost may be higher.") to every partial charge, and a charge without a price is
+  partial. `RunUsage.steps`, the path of runs of older flow versions, says `NO_PRICE` ("No price is set
+  for this model, so the cost is not known.") for the same case. Seen on the run page of MODBAR-838 run 2
+  in the demo console. A fix would tell the two cases apart in `RunUsage.attempts`, as `RunUsage.steps`
+  does.

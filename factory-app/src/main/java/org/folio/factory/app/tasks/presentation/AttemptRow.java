@@ -14,4 +14,12 @@ public record AttemptRow(int ordinal, String kind, String settings, PageTime sta
                          AttemptClock clock, String note, String quote, String cost, String costNoteTitle,
                          String costText, AttemptStatus status, String result, UUID executionId,
                          TaskSpending.Tokens tokens) {
+
+    /** The kind and the quote in one line, the title of the run name that a narrow cell cuts; null for a first run. */
+    public String kindTitle() {
+        if (quote == null) {
+            return kind;
+        }
+        return kind == null ? quote : kind + " " + quote;
+    }
 }

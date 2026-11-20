@@ -39,7 +39,8 @@
 
     <div class="dash-developer" th:if="${developerSpent != null}">
         <span class="src">Developer Flow</span>
-        <span><strong class="dash-developer-spent" th:text="${developerSpent}">$16.46</strong> spent</span>
+        <span><strong class="dash-developer-spent" th:title="${developerSpent.unpricedNote()}"
+                th:text="${developerSpent.amount()}">$16.46</strong> spent</span>
         <a class="btn btn-secondary btn-sm" th:href="@{/developer/statistics(days=${days})}">Statistics</a>
     </div>
 
