@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.runtime;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -7,17 +8,20 @@ import java.util.regex.Pattern;
 
 /** Bounded, sanitized Maven activity and one actionable dependency-transfer failure. */
 public final class MavenBaselineOutput implements BuildOutput {
+    /** The readiness artifact keeps this many characters from the end of the starting build output. */
+    public static final int KEPT_TAIL = 16000;
     static final int EVENT_LIMIT = 120;
     private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
     private static final Pattern URI_CREDENTIALS = Pattern.compile("(https?://)[^/@\\s]+@", Pattern.CASE_INSENSITIVE);
-    private static final Pattern AUTH_SCHEME = Pattern.compile("(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_.=-]+");
     private static final Pattern NAMED_SECRET = Pattern.compile(
             "(?i)(authorization|password|token|api[-_]?key)(\\s*[=:]\\s*)\\S+");
+    private static final Pattern AUTHORIZATION_VALUE = Pattern.compile("(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_.=-]+");
     private static final Pattern TRANSFER = Pattern.compile(
             "(?i)Could not transfer artifact (?:[^:\\s]+:)?([^:\\s]+):[^:\\s]+:([^:\\s]+) from/to ([^ (:\\s]+)");
     private static final Pattern NETWORK_FAILURE = Pattern.compile(
             "connect timed out|connection timed out|connection timeout|read timed out|read timeout|connection reset"
-                    + "|unknownhostexception|unknown host|temporary failure in name resolution|name or service not known"
+                    + "|unknownhostexception|unknown host|temporary failure in name resolution"
+                    + "|name or service not known"
                     + "|premature end of content-length|unexpected end of stream|incomplete http body");
     private static final Pattern EXCEPTION_CONTINUATION = Pattern.compile(
             "(?:[a-z0-9_$]+\\.)+[a-z0-9_$]*exception:.*");
@@ -78,22 +82,29 @@ public final class MavenBaselineOutput implements BuildOutput {
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
             if (!line.contains("[error]") || !(line.contains("could not transfer artifact")
-                    || line.contains("could not transfer metadata") || line.contains("failed to transfer artifact"))) continue;
-            if (NETWORK_FAILURE.matcher(line).find()) return true;
-            // Maven can wrap a transfer exception onto adjacent diagnostic lines. Only
-            // recognizable exception continuations qualify, not arbitrary later test output.
-            for (int next = i + 1; next < Math.min(lines.size(), i + 4); next++) {
-                String continuation = lines.get(next).strip();
-                if (continuation.startsWith("[error]")) continuation = continuation.substring(7).strip();
-                boolean cause = continuation.startsWith("caused by:") || continuation.startsWith("connect to ")
-                        || EXCEPTION_CONTINUATION.matcher(continuation).matches()
-                        || NETWORK_FAILURE.matcher(continuation).matches()
-                        || continuation.startsWith("premature end of content-length")
-                        || continuation.startsWith("unexpected end of stream")
-                        || continuation.startsWith("incomplete http body");
-                if (!cause) break;
-                if (NETWORK_FAILURE.matcher(continuation).find()) return true;
-            }
+                    || line.contains("could not transfer metadata")
+                    || line.contains("failed to transfer artifact"))) continue;
+            if (NETWORK_FAILURE.matcher(line).find() || continuesWithNetworkFailure(lines, i)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Maven can wrap a transfer exception onto adjacent diagnostic lines. Only
+     * recognizable exception continuations qualify, not arbitrary later test output.
+     */
+    private static boolean continuesWithNetworkFailure(List<String> lines, int transferLine) {
+        for (int next = transferLine + 1; next < Math.min(lines.size(), transferLine + 4); next++) {
+            String continuation = lines.get(next).strip();
+            if (continuation.startsWith("[error]")) continuation = continuation.substring(7).strip();
+            boolean cause = continuation.startsWith("caused by:") || continuation.startsWith("connect to ")
+                    || EXCEPTION_CONTINUATION.matcher(continuation).matches()
+                    || NETWORK_FAILURE.matcher(continuation).matches()
+                    || continuation.startsWith("premature end of content-length")
+                    || continuation.startsWith("unexpected end of stream")
+                    || continuation.startsWith("incomplete http body");
+            if (!cause) return false;
+            if (NETWORK_FAILURE.matcher(continuation).find()) return true;
         }
         return false;
     }
@@ -124,9 +135,14 @@ public final class MavenBaselineOutput implements BuildOutput {
 
     public static String sanitize(String text) {
         String safe = URI_CREDENTIALS.matcher(text).replaceAll("$1[REDACTED]@");
-        safe = AUTH_SCHEME.matcher(safe).replaceAll("$1 [REDACTED]");
+        safe = AUTHORIZATION_VALUE.matcher(safe).replaceAll("$1 [REDACTED]");
         safe = NAMED_SECRET.matcher(safe).replaceAll("$1$2[REDACTED]");
         return safe;
+    }
+
+    /** Bearer and Basic credentials, then the {@link #sanitize} secrets. */
+    public static String redactCredentials(String text) {
+        return sanitize(AUTHORIZATION_VALUE.matcher(text).replaceAll("$1 [REDACTED]"));
     }
 
     private enum Category { DOWNLOAD, DIAGNOSTIC, ACTIVITY, RESULT }

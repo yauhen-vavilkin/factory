@@ -5,6 +5,7 @@ import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import lombok.Getter;
 
 import java.io.Serializable;
 import java.time.Instant;
@@ -14,6 +15,7 @@ import java.time.Instant;
  * back to the exact descriptor content it ran under. The YAML on the classpath is
  * the source of truth; this row is a snapshot.
  */
+@Getter
 @Entity
 @Table(name = "flow_registry")
 public class FlowRegistryEntry {
@@ -50,18 +52,6 @@ public class FlowRegistryEntry {
         this.registeredAt = Instant.now();
     }
 
-    public Key getKey() {
-        return key;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getYamlSha256() {
-        return yamlSha256;
-    }
-
     public void updateSnapshot(String name, String yamlSha256, String rawYaml) {
         this.name = name;
         this.yamlSha256 = yamlSha256;
@@ -69,11 +59,4 @@ public class FlowRegistryEntry {
         this.registeredAt = Instant.now();
     }
 
-    public String getRawYaml() {
-        return rawYaml;
-    }
-
-    public Instant getRegisteredAt() {
-        return registeredAt;
-    }
 }

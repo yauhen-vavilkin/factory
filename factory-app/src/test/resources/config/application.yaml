@@ -1,0 +1,9 @@
+# Defaults for every Spring test context of this module. Boot reads classpath:/config/ on top of
+# the main application.yaml; a test application.yaml at the classpath root would replace it.
+spring:
+  ai:
+    model:
+      chat: none
+factory:
+  engine:
+    enabled: false

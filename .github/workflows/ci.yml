@@ -45,7 +45,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # The factory-app CycloneDX plugin emits the SBOM during the normal verify build (DEP-1).
+      # The factory-app CycloneDX plugin emits the SBOM during the normal verify build.
       - name: Upload CycloneDX SBOM
         if: ${{ always() }}
         uses: actions/upload-artifact@v7

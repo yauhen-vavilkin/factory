@@ -4,6 +4,9 @@ import static org.folio.factory.devfactory.feedback.FeedbackState.Phase.*;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 
+import lombok.Getter;
+import lombok.experimental.Accessors;
+
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 
@@ -17,7 +20,13 @@ import java.util.UUID;
 
 /** Bounded current operation. Earlier versions are the round history. */
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.ANY)
+@Getter
+@Accessors(fluent = true)
 public class FeedbackState {
+    /** The start of the reason of a round whose latest edits Factory could not save; the cause follows it. */
+    public static final String EDITS_NOT_SAVED_START =
+            "Latest edits could not be saved; the previous confirmed patch is retained. ";
+
     public enum Phase {
         INIT,
         READY,
@@ -37,7 +46,6 @@ public class FeedbackState {
         SKIPPED
     }
 
-    private Phase phase = Phase.INIT;
     Phase resumePhase;
     Phase cleanupResumePhase;
     String lastCleanedInvocation = "";
@@ -67,115 +75,12 @@ public class FeedbackState {
     VerificationReceipt verification;
     Map<String, Object> usage = Map.of();
     Map<String, Object> rate = Map.of();
+    private Phase phase = Phase.INIT;
 
     public FeedbackState() {}
 
-    public Phase phase() {
-        return phase;
-    }
-
-    public Phase resumePhase() {
-        return resumePhase;
-    }
-
-    public Phase cleanupResumePhase() {
-        return cleanupResumePhase;
-    }
-
-    public String lastCleanedInvocation() {
-        return lastCleanedInvocation;
-    }
-
     public List<String> cleanupSteps() {
         return List.copyOf(cleanupSteps);
-    }
-
-    public int round() {
-        return round;
-    }
-
-    public String attemptId() {
-        return attemptId;
-    }
-
-    public String reason() {
-        return reason;
-    }
-
-    public String failureKind() {
-        return failureKind;
-    }
-
-    public String answer() {
-        return answer;
-    }
-
-    public String question() {
-        return question;
-    }
-
-    public List<String> options() {
-        return options;
-    }
-
-    public PrFeedbackGateway.PullRequest pr() {
-        return pr;
-    }
-
-    public List<PrFeedbackGateway.Comment> selected() {
-        return selected;
-    }
-
-    public String snapshotId() {
-        return snapshotId;
-    }
-
-    public String startedAt() {
-        return startedAt;
-    }
-
-    public String roundStartedAt() {
-        return roundStartedAt;
-    }
-
-    public String finishedAt() {
-        return finishedAt;
-    }
-
-    public String summary() {
-        return summary;
-    }
-
-    public String taskSummary() {
-        return taskSummary;
-    }
-
-    public String completionReason() {
-        return completionReason;
-    }
-
-    public boolean manual() {
-        return manual;
-    }
-
-    public String commitSha() {
-        return commitSha;
-    }
-
-    public String runtimeName() {
-        return runtimeName;
-    }
-
-    public VerificationReceipt verification() {
-        return verification;
-    }
-
-    public Map<String, Object> usage() {
-        return usage;
-    }
-
-    public Map<String, Object> rate() {
-        return rate;
     }
 
     public boolean waiting() {
@@ -350,8 +255,8 @@ public class FeedbackState {
         phase = Phase.INTERRUPTED;
         lastCleanedInvocation = invocation;
         reason =
-                "A previous coding attempt was interrupted. Its latest changes and cost may be"
-                        + " incomplete. Start a new attempt explicitly.";
+                "The agent was interrupted while it was coding. Its latest changes and cost may be"
+                        + " incomplete. Start the coding again explicitly.";
     }
 
     void failed(String message) {
@@ -400,7 +305,7 @@ public class FeedbackState {
         } else {
             phase = Phase.FAILURE;
             failureKind = receipt.failureKind().name();
-            reason = "Independent checks failed: " + receipt.failureKind();
+            reason = receipt.failureReason();
         }
     }
 

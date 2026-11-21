@@ -20,13 +20,13 @@ non-linearly with the module count.
 The Factory introduces an AI-driven orchestration layer with these strategic
 objectives:
 
-| Dimension | Target outcome |
-|---|---|
-| Efficiency | 10–20% cycle-time improvement per automated SDLC phase |
-| Quality | Consistent, standardised artifacts with reduced rework |
-| Composability | Flows reuse common infrastructure and invoke each other |
-| Extensibility | New flows added via plugin registration, without re-architecting |
-| Team enablement | Engineers shift from manual executors to reviewers and approvers |
+| Dimension        | Target outcome                                                   |
+|------------------|------------------------------------------------------------------|
+| Efficiency       | 10–20% cycle-time improvement per automated SDLC phase           |
+| Quality          | Consistent, standardised artifacts with reduced rework           |
+| Composability    | Flows reuse common infrastructure and invoke each other          |
+| Extensibility    | New flows added via plugin registration, without re-architecting |
+| Team enablement  | Engineers shift from manual executors to reviewers and approvers |
 
 The platform's defining characteristic is that its capability set is **not
 fixed**: any SDLC automation (documentation, security scanning, performance
@@ -106,10 +106,9 @@ Flow Plugin Descriptor
   triggers:        list of event types that activate this flow
   input_schema:    expected input artifact structure
   output_schema:   emitted output artifact structure
-  agent_chain:     ordered list of agent worker invocations
-  hitl_gates:      positions and review package definitions
-  sub_flows:       references to other registered flows (optional)
-  retry_policy:    per-agent retry budgets
+  agent_chain:     ordered steps: AGENT (worker invocation), HITL_GATE (review
+                   package), SUB_FLOW (call to another registered flow)
+  retry_policy:    per-step retry budgets
 ```
 
 Introducing a new flow — of any kind — always follows the same pattern:
@@ -247,7 +246,7 @@ the shared framework, not by individual flow implementations:
 ## 8. Mapping to the implementation
 
 The platform components map onto repository modules as follows — see
-[CLAUDE.md](../CLAUDE.md) for the deeper code-level walkthrough:
+[AGENTS.md](../AGENTS.md) for the deeper code-level walkthrough:
 
 | Design component | Implementation |
 |---|---|

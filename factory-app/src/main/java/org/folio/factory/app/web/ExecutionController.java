@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -23,18 +24,12 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/executions")
+@RequiredArgsConstructor
 public class ExecutionController {
 
     private final PipelineExecutionRepository executions;
     private final ArtifactStore artifactStore;
     private final AuditLog auditLog;
-
-    public ExecutionController(PipelineExecutionRepository executions, ArtifactStore artifactStore,
-                               AuditLog auditLog) {
-        this.executions = executions;
-        this.artifactStore = artifactStore;
-        this.auditLog = auditLog;
-    }
 
     public record ExecutionSummary(UUID id, String flowId, String flowVersion, ExecutionStatus status,
                                    int currentStepIndex, UUID parentExecutionId, Instant createdAt,

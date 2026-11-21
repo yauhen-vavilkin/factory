@@ -1,9 +1,8 @@
 package org.folio.factory.app.web;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.core.trigger.TriggerEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,9 +28,8 @@ import java.util.UUID;
  */
 @RestController
 @RequestMapping("/api/webhooks")
+@Slf4j
 public class WebhookController {
-
-    private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final PipelineRouter router;
     private final String sharedSecret;

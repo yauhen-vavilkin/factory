@@ -4,231 +4,620 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.ArtifactContent;
+import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.tasks.AttemptDeadline;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
-import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.worker.InitialCodingAttempt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
+
+import tools.jackson.databind.json.JsonMapper;
+
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
+import org.mockito.ArgumentCaptor;
+import org.folio.factory.devfactory.DevFlowSettings;
+import org.folio.factory.devfactory.CodingServices;
+import org.folio.factory.devfactory.DevFactoryHooks;
+
 class DevelopReadinessTest {
+    private static final String MODEL_KEY = "sk-test-0123456789abcdef";
+
+    private static final DevRuntimeProperties MAVEN =
+            new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
+    private static final DevRuntimeProperties YARN = new DevRuntimeProperties(
+            Map.of("unit", List.of("yarn", "test", "--maxWorkers=2")), null, 60, null, Map.of(),
+            Map.of("unit", Toolchain.YARN), null, 0);
+    private static final PinnedLockfile LOCKFILE = PinnedLockfile.of(
+            "# yarn lockfile v1\n\nleft-pad@^1.3.0:\n  version \"1.3.0\"\n".getBytes());
+
     @TempDir Path workspace;
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void retryStartsPiOnlyAfterBuildPassesAndNeverRetriesPiFailure(boolean piFails) {
-        var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
-        var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
-        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")),
-                new DevRuntimeProperties.Coding("pi:image", "provider", "model", null, null, "secret", "pi", null, null), 60, null);
-        var docker = mock(DockerWorkloads.class);
-        var stepScope = mock(DockerWorkloads.StepScope.class);
-        when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
-        var baseline = mock(DockerWorkloads.Workload.class);
-        var pi = mock(DockerWorkloads.Workload.class);
-        var freezer = mock(CandidateFreezer.class);
-        var coding = mock(CodingRuntime.class);
-        when(coding.image()).thenReturn("pi:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "pi", "image", "pi:image",
-                "provider", "provider", "model", "model"));
-        when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
-        when(stepScope.createTrusted("build:image", workspace, BuildEnvironment.maven("factory-dev-m2-cache"))).thenReturn(baseline);
-        when(stepScope.createSeeded("pi:image", workspace, BuildEnvironment.maven("factory-dev-m2-cache"), "coding")).thenReturn(pi);
-        when(baseline.executeKeepingTail(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
-                .thenReturn(new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out"),
-                        new Processes.Result(0, "[INFO] BUILD SUCCESS"));
-        if (piFails) when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any()))
-                .thenAnswer(invocation -> {
-                    java.util.function.Consumer<Map<String, Object>> observer = invocation.getArgument(3);
-                    var progress = new PiProgress("secret", observer);
-                    progress.accept("""
-                            {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"private secret"}],"usage":{"input":10,"cacheRead":2,"cacheWrite":1,"output":3,"cost":{"total":0.125}}}}
-                            """);
-                    throw new AgentExecutionException("Provider failed");
-                });
-        else {
-            when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any())).thenReturn(CodingOutcome.completed("Done", Map.of(
-                    "inputTokens", 10L, "cacheReadTokens", 2L, "cacheWriteTokens", 1L,
-                    "outputTokens", 3L, "costUsd", new java.math.BigDecimal("0.125"))));
-            when(freezer.freeze(eq("repo"), anyString(), anyString(), any(), eq(false), eq(org.folio.factory.devfactory.runtime.Toolchain.MAVEN)))
-                    .thenReturn(new org.folio.factory.devfactory.candidate.Candidate("repo", "a".repeat(40),
-                            "b".repeat(40), org.folio.factory.devfactory.candidate.Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
-        }
-        var codec = new FrontmatterCodec();
-        var brief = codec.render(Map.of("state", "INTAKE_READY", "repository", Map.of("key", "repo", "base_sha", "a".repeat(40))), "Task");
-        var request = request();
-        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(
-                IntakeResolveWorker.TASK_BRIEF, new ArtifactContent(IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief),
-                IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
-                        "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request))),
-                null, Map.of(), List.of());
+    void aTransientBaselineFailureIsRetriedBeforeCodingAndACodingFailureIsNotRetried(boolean codingFails) {
         var audit = mock(AuditLog.class);
-        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of()), codec);
+        var harness = taskHarness(RecordingTaskAttempts.none(), CodingTranscripts.none(), audit);
+        when(harness.baseline().executeKeepingTail(anyList(), anyInt(), anyInt(), any()))
+                .thenReturn(new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1"
+                                + " from/to central: Read timed out"),
+                        new Processes.Result(0, "[INFO] BUILD SUCCESS"));
+        if (codingFails) {
+            when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                    .thenAnswer(invocation -> {
+                        Consumer<Map<String, Object>> observer = invocation.getArgument(3);
+                        new PiProgress("secret", observer).accept("""
+                                {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"private secret"}],"usage":{"input":10,"cacheRead":2,"cacheWrite":1,"output":3,"cost":{"total":0.125}}}}
+                                """);
+                        throw new AgentExecutionException("Provider failed");
+                    });
+        } else {
+            when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                    .thenReturn(CodingOutcome.completed("Done", Map.of("inputTokens", 10L, "cacheReadTokens", 2L,
+                            "cacheWriteTokens", 1L, "outputTokens", 3L, "costUsd", new BigDecimal("0.125"))));
+            when(harness.freezer().freeze(eq("repo"), anyString(), anyString(), any(), anyBoolean(), any()))
+                    .thenReturn(new Candidate("repo", "a".repeat(40),
+                            "b".repeat(40), Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
+        }
+        var worker = harness.worker();
+        var context = harness.context();
 
-        assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
-        verify(coding, never()).code(any(), any(), anyInt(), any());
-        verify(coding, never()).requireConfigured();
+        assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
+                .hasMessageContaining("coding has not started");
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         var result = worker.execute(context);
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
-                .contains(piFails ? "DEVELOPMENT_FAILED" : "CANDIDATE_UNVERIFIED");
+                .contains(codingFails ? "DEVELOPMENT_FAILED" : "CANDIDATE_UNVERIFIED");
         assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
-        if (piFails) verify(audit).record(eq(context.executionId()),
-                eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"),
-                argThat(detail -> detail.entrySet().containsAll(Map.of("activity", "coding_usage", "inputTokens", 10L, "cacheReadTokens", 2L,
-                        "cacheWriteTokens", 1L, "outputTokens", 3L,
-                        "costUsd", new java.math.BigDecimal("0.125")).entrySet()) && detail.containsKey("attemptId")));
-        else assertThat(result.metrics())
-                .containsEntry("inputTokens", 10L)
-                .containsEntry("cacheReadTokens", 2L)
-                .containsEntry("cacheWriteTokens", 1L)
-                .containsEntry("outputTokens", 3L)
-                .containsEntry("promptTokens", 13L)
-                .containsEntry("completionTokens", 3L);
-        verify(coding).code(eq(pi), any(CodingRequest.class), eq(60), any());
-        verify(stepScope, times(2)).createTrusted("build:image", workspace, BuildEnvironment.maven("factory-dev-m2-cache"));
-        verify(baseline, times(2)).close();
-        verify(pi).close();
+        verify(harness.coding(), times(1)).code(any(), any(CodingRequest.class), anyInt(), any(), any());
+        if (codingFails) {
+            // The usage of a failed coding call is still on record.
+            Map<String, Object> expectedUsageEvent = Map.of("activity", "coding_usage", "inputTokens", 10L,
+                    "cacheReadTokens", 2L, "cacheWriteTokens", 1L, "outputTokens", 3L,
+                    "costUsd", new BigDecimal("0.125"));
+            verify(audit).record(
+                    eq(context.executionId()), eq(AuditEventType.RUNTIME_PROGRESS), eq("implement"),
+                    argThat(detail -> detail.entrySet().containsAll(expectedUsageEvent.entrySet())
+                            && detail.containsKey("attemptId")));
+        } else {
+            assertThat(result.metrics()).containsEntry("inputTokens", 10L).containsEntry("cacheReadTokens", 2L)
+                    .containsEntry("cacheWriteTokens", 1L).containsEntry("outputTokens", 3L);
+        }
+        verify(harness.baseline(), times(2)).close();
+        verify(harness.codingWorkload()).close();
+        var environment = BuildEnvironment.maven("factory-dev-m2-cache");
+        verify(harness.scope(), times(2)).createTrusted("build:image", workspace, environment);
+        verify(harness.scope()).createSeeded("coding:image", workspace, environment, "coding");
+        verify(harness.baseline(), times(2)).executeKeepingTail(eq(List.of("mvn", "test")), eq(60),
+                eq(Processes.OUTPUT_LIMIT), any());
     }
 
-    @Test void transientBaselineSignalsEngineRetryAndMakesZeroCodingCalls() {
+    @Test
+    void transientBaselineSignalsEngineRetryAndMakesZeroCodingCalls() {
         verifyFailedBaseline(Toolchain.MAVEN, "[ERROR] Could not transfer artifact net.sf.saxon:Saxon-HE:jar:12.9 "
                 + "from/to central (https://repo.maven.apache.org/maven2): "
                 + "Premature end of Content-Length delimited message body", true);
     }
 
-    @Test void compilationFailureDoesNotRetryOrStartPi() {
+    @Test
+    void compilationFailureDoesNotRetryOrStartCoding() {
         verifyFailedBaseline(Toolchain.MAVEN, "[ERROR] Compilation failure: cannot find symbol", false);
     }
 
-    @Test void testFailureDoesNotRetryOrStartPi() {
+    private void verifyFailedBaseline(Toolchain toolchain, String failure, boolean retryable) {
+        var audit = mock(AuditLog.class);
+        var settings = toolchain == Toolchain.YARN ? YARN : MAVEN;
+        var harness = taskHarness(RecordingTaskAttempts.none(), CodingTranscripts.none(), audit,
+                SelectedRepositoryPreflight.none(), settings);
+        var command = settings.verificationCommand("unit");
+        var baseline = harness.baseline();
+        when(baseline.executeKeepingTail(anyList(), anyInt(), anyInt(), any()))
+                .thenAnswer(invocation -> {
+                    @SuppressWarnings("unchecked")
+                    Consumer<String> observer = invocation.getArgument(3);
+                    observer.accept(toolchain == Toolchain.YARN ? "[2/4] Fetching packages..."
+                            : "[INFO] --- compiler:3.16.0:compile (default-compile) @ module ---");
+                    return new Processes.Result(1, failure);
+                });
+        var worker = harness.worker();
+        var context = harness.context();
+        if (toolchain == Toolchain.YARN) gitWorkspace(true);
+        var detail = toolchain == Toolchain.YARN ? List.of("ETIMEDOUT") : List.of("Saxon-HE", "incomplete download");
+        if (retryable) {
+            // Repeated worker attempts retain the configured command and do not add a global -U.
+            for (int attempt = 0; attempt < 2; attempt++) {
+                if (toolchain == Toolchain.YARN) gitWorkspace(true);
+                assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
+                        .hasMessageContaining("Starting build hit a network/download failure")
+                        .hasMessageContaining("coding has not started")
+                        .satisfies(e -> assertThat(e.getMessage()).contains(detail));
+            }
+        } else {
+            var result = worker.execute(context);
+            assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT");
+            assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_FAILED", "output");
+        }
+        var builds = retryable ? 2 : 1;
+        verify(harness.scope(), times(builds)).createTrusted("build:image", workspace, settings.environment("unit"));
+        verify(baseline, times(builds)).executeKeepingTail(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+        verify(audit, atLeastOnce()).record(eq(context.executionId()),
+                eq(AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
+        verify(baseline, times(retryable ? 2 : 1)).close();
+    }
+
+    @Test
+    void invalidCodingProfileReconcilesOwnedStepButNeverChecksOutOrBuilds() {
+        var harness = taskHarness(RecordingTaskAttempts.none());
+        doThrow(new IllegalStateException("secret must not persist")).when(harness.coding()).requireConfigured(any());
+
+        var result = harness.attempt().start(harness.context(), request());
+
+        assertThat(result.candidate())
+                .contains("BLOCKED_ENVIRONMENT")
+                .doesNotContain("secret must not persist");
+        var order = inOrder(harness.docker(), harness.coding(), harness.scope());
+        order.verify(harness.docker()).beginStep(harness.context().executionId(), "implement");
+        order.verify(harness.coding()).requireConfigured(any());
+        order.verify(harness.scope()).close();
+        verifyNoInteractions(harness.freezer());
+        verify(harness.scope(), never()).createTrusted(anyString(), any(), any());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void aTaskExecutionClaimsOnePaidStartAndAReplayedStepCannotStartAnother() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        var harness = taskHarness(taskAttempts);
+
+        var first = harness.worker().execute(harness.context());
+        var replay = harness.worker().execute(harness.context());
+
+        assertThat(first.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+        assertThat(taskAttempts.paidStartClaims).isEqualTo(2);
+        assertThat(replay.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("PAID_START_CONSUMED")
+                .contains(TaskStops.REPLAYED_CODING_REASON);
+        verify(harness.coding(), times(1)).code(any(), any(), anyInt(), any(), any());
+        verify(harness.docker(), times(2)).beginStep(any(), any());
+        verify(harness.freezer(), times(2)).checkout(anyString(), anyString());
+        verify(harness.codingWorkload(), times(2)).close();
+        verify(harness.freezer(), never()).freeze(anyString(), anyString(), anyString(), any(), eq(false), any());
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
+            assertThat(stop).isEqualTo("implement: " + TaskStops.REPLAYED_CODING_REASON);
+            assertThat(stop).doesNotContainPattern("[0-9a-f]{8}-[0-9a-f]{4}-");
+        });
+    }
+
+    @Test
+    void aTaskBaselineFailureKeepsTheClaimUnconsumedAndTheEngineRetrySucceeds() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        var harness = taskHarness(taskAttempts);
+        when(harness.baseline().executeKeepingTail(anyList(), anyInt(), anyInt(), any()))
+                .thenReturn(
+                        new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1"
+                                + " from/to central: Read timed out"),
+                        new Processes.Result(0, "[INFO] BUILD SUCCESS"));
+        var worker = harness.worker();
+        var context = harness.context();
+
+        assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
+                .hasMessageContaining("Starting build hit a network/download failure")
+                .hasMessageContaining("coding has not started");
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        assertThat(taskAttempts.stops).isEmpty();
+
+        var retried = worker.execute(context);
+
+        assertThat(retried.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+        assertThat(retried.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
+        assertThat(taskAttempts.paidStartClaims).isEqualTo(1);
+        assertThat(taskAttempts.stops).isEmpty();
+        verify(harness.coding(), times(1)).code(any(), any(), anyInt(), any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void blockedRepositoryStopsBeforeCheckoutForInitialAttemptAndContinuation(boolean continuation) {
+        var selectedRepository = mock(SelectedRepositoryPreflight.class);
+        var harness = taskHarness(RecordingTaskAttempts.none(), CodingTranscripts.none(), mock(AuditLog.class),
+                selectedRepository);
+        var context = harness.context();
+        var request = request();
+        doThrow(new IllegalStateException("credential-secret must not persist"))
+                .when(selectedRepository)
+                .requireRepositoryReady("repo", request.repository().baseSha());
+        var readiness = JsonMapper.builder().build().readTree("{\"state\":\"BASELINE_PASSED\"}");
+
+        var result = continuation
+                ? harness.attempt().retry(context, request, readiness, null)
+                : harness.attempt().start(context, request);
+
+        assertThat(result.candidate())
+                .contains("BLOCKED_ENVIRONMENT")
+                .doesNotContain("credential-secret");
+        assertThat(result.outcome().failure().message()).doesNotContain("credential-secret");
+        if (continuation) {
+            assertThat(result.readiness()).contains("BASELINE_PASSED");
+        }
+        var order = inOrder(harness.docker(), harness.coding(), selectedRepository, harness.scope());
+        order.verify(harness.docker()).beginStep(context.executionId(), "implement");
+        order.verify(harness.coding()).requireConfigured(any());
+        order.verify(selectedRepository).requireRepositoryReady("repo", "a".repeat(40));
+        order.verify(harness.scope()).close();
+        verifyNoInteractions(harness.freezer());
+        verify(harness.scope(), never()).createTrusted(anyString(), any(), any());
+        verify(harness.scope(), never()).createSeeded(anyString(), any(), any(), anyString());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void anExpiredTaskDeadlinePreventsEveryStageSideEffect() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(Instant.now().minusSeconds(1)));
+        var harness = taskHarness(taskAttempts);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(TaskStops.DEADLINE_STATE)
+                .contains(TaskStops.deadlineReason("preparation"));
+        verify(harness.freezer(), never()).checkout(anyString(), anyString());
+        verify(harness.scope(), never()).createTrusted(anyString(), any(), any());
+        verify(harness.scope(), never()).createSeeded(anyString(), any(), any(), anyString());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
+            assertThat(stop).startsWith("implement: ");
+            assertThat(stop).contains(TaskStops.DEADLINE_START);
+        });
+    }
+
+    @Test
+    void aDeadlineExpiringDuringBaselinePreventsCodingWithoutConsumingThePaidStart() {
+        var now = new AtomicReference<>(Instant.now());
+        var clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(invocation -> now.get());
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(now.get().plusSeconds(3)))
+                .withClock(clock);
+        var harness = taskHarness(taskAttempts);
+        when(harness.baseline().executeKeepingTail(anyList(), anyInt(), anyInt(), any())).thenAnswer(
+                invocation -> {
+                    now.set(now.get().plusSeconds(4));
+                    return new Processes.Result(0, "[INFO] BUILD SUCCESS");
+                });
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(TaskStops.DEADLINE_STATE)
+                .contains(TaskStops.deadlineReason("coding"));
+        verify(harness.scope(), never()).createSeeded(anyString(), any(), any(), anyString());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        assertThat(taskAttempts.stops).anyMatch(stop -> stop.contains(TaskStops.deadlineReason("coding")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.",
+            "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ETIMEDOUT\"."})
+    void aDeadlineExpiringDuringTheCodingInstallStopsAtTheDeadlineWithoutClaimingThePaidStart(String installError) {
+        var now = new AtomicReference<>(Instant.now());
+        var clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(invocation -> now.get());
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(now.get().plusSeconds(3)))
+                .withClock(clock);
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), true, taskAttempts);
+        when(harness.codingWorkload().execute(anyList(), anyInt(), anyInt(), any())).thenAnswer(invocation -> {
+            now.set(now.get().plusSeconds(4));
+            return new Processes.Result(installError.isEmpty() ? 0 : 1, installError);
+        });
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(TaskStops.DEADLINE_STATE, TaskStops.deadlineReason("coding"));
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        assertThat(taskAttempts.stops).singleElement()
+                .isEqualTo("implement: " + TaskStops.deadlineReason("coding"));
+    }
+
+    @Test
+    void aDeadlineExpiringWhileTheAgentCodesStopsBeforeTheChangesAreSavedInPlainWords() {
+        var now = new AtomicReference<>(Instant.now());
+        var clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(invocation -> now.get());
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(now.get().plusSeconds(3)))
+                .withClock(clock);
+        var harness = taskHarness(taskAttempts);
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any())).thenAnswer(
+                invocation -> {
+                    now.set(now.get().plusSeconds(4));
+                    return CodingOutcome.completed("Done", Map.of());
+                });
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(TaskStops.deadlineReason("saving the agent's changes"))
+                .doesNotContain("candidate freeze");
+        verify(harness.freezer(), never()).freeze(anyString(), anyString(), anyString(), any(), anyBoolean(), any());
+        assertThat(taskAttempts.stops).singleElement()
+                .isEqualTo("implement: " + TaskStops.deadlineReason("saving the agent's changes"));
+    }
+
+    @Test
+    void theRemainingBudgetCapsEveryStageTimeoutBelowTheConfiguredPerOperationLimit() {
+        var now = Instant.parse("2026-10-23T10:00:00Z");
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(now.plusSeconds(45)))
+                .withClock(Clock.fixed(now, java.time.ZoneOffset.UTC));
+        var harness = taskHarness(taskAttempts);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+        // The configured limit is 60 seconds; 45 are left of the attempt.
+        var baselineTimeout = ArgumentCaptor.forClass(Integer.class);
+        verify(harness.baseline()).executeKeepingTail(anyList(), baselineTimeout.capture(), anyInt(), any());
+        assertThat(baselineTimeout.getValue()).isEqualTo(45);
+        var codingTimeout = ArgumentCaptor.forClass(Integer.class);
+        verify(harness.coding()).code(any(), any(CodingRequest.class), codingTimeout.capture(), any(), any());
+        assertThat(codingTimeout.getValue()).isEqualTo(45);
+    }
+
+    @Test
+    void theRemainingBudgetAlsoCapsTheInstallInTheCodingContainer() {
+        var now = Instant.parse("2026-10-23T10:00:00Z");
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(now.plusSeconds(45)))
+                .withClock(Clock.fixed(now, java.time.ZoneOffset.UTC));
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), true, taskAttempts);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("CANDIDATE_UNVERIFIED");
+        // The configured limit is 60 seconds; 45 are left of the run.
+        verify(harness.codingWorkload()).execute(install(), 45, Processes.OUTPUT_LIMIT, null);
+    }
+
+    @Test
+    void eachCodingRunWritesItsTranscriptUnderTheExecutionAndTheRunAttemptId() {
+        var opened = new java.util.ArrayList<String>();
+        var entries = new java.util.ArrayList<CodingTranscripts.Entry>();
+        var closed = new java.util.concurrent.atomic.AtomicBoolean();
+        CodingTranscripts transcripts = (executionId, runId, stepId) -> {
+            opened.add(executionId + "/" + runId + "/" + stepId);
+            return new CodingTranscripts.Sink() {
+                @Override public void add(CodingTranscripts.Entry entry) { entries.add(entry); }
+                @Override public void close() { closed.set(true); }
+            };
+        };
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"), transcripts);
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any())).thenAnswer(call -> {
+            CodingTranscripts.Sink sink = call.getArgument(4);
+            sink.add(new CodingTranscripts.Entry("prompt", Instant.now(), Map.of("text", "Implement")));
+            assertThat(closed).isFalse();
+            return CodingOutcome.failed("TURN_LIMIT", "Claude Code used all 10 turns before it finished the task."
+                    + " Retry with more turns or a different effort.", Map.of());
+        });
+
+        var result = harness.worker().execute(harness.context());
+
+        String runId = result.metrics().get("attemptId").toString();
+        assertThat(opened).containsExactly(harness.context().executionId() + "/" + runId + "/implement");
+        assertThat(entries).extracting(CodingTranscripts.Entry::kind).containsExactly("prompt");
+        assertThat(closed).isTrue();
+        assertThat(result.outputs().get(DevelopWorker.OUTCOME))
+                .contains("Claude Code used all 10 turns before it finished the task.");
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("Retry with more turns or a different effort.");
+    }
+
+    @Test
+    void aCommandOverTheOutputLimitStopsTheAttemptWithOnePlainReason() {
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"));
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of()));
+        when(harness.freezer().freeze(anyString(), anyString(), anyString(), any(), anyBoolean(), any()))
+                .thenThrow(new IllegalStateException(Processes.OUTPUT_LIMIT_EXCEEDED));
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("DEVELOPMENT_FAILED", "A command printed more output than Factory accepts")
+                .doesNotContain("Development stopped", Processes.OUTPUT_LIMIT_EXCEEDED);
+    }
+
+    @Test
+    void anUnexpectedErrorIsTheWholeReasonWithoutALayerPrefix() {
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"));
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of()));
+        when(harness.freezer().freeze(anyString(), anyString(), anyString(), any(), anyBoolean(), any()))
+                .thenThrow(new IllegalStateException("Candidate contains no changes"));
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("Candidate contains no changes").doesNotContain("Development stopped");
+    }
+
+    @Test
+    void aPatchThatAddsAModelsApiKeyIsRefusedWithTheFileAndKeepsTheSpend() {
+        var harness = secretCheckingHarness();
+        when(harness.freezer().freeze(anyString(), anyString(), anyString(), any(), anyBoolean(), any()))
+                .thenReturn(candidateAdding("src/main/resources/application.yml", "api-key: " + MODEL_KEY));
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("DEVELOPMENT_FAILED", TaskStops.secretInChangesReason("src/main/resources/application.yml"))
+                .doesNotContain(MODEL_KEY, Candidate.UNVERIFIED);
+        assertThat(result.metrics()).containsEntry("inputTokens", 10L);
+    }
+
+    @Test
+    void aPatchThatHoldsOnlyTheShortPublicWordOfALocalProxyIsKept() {
+        var harness = secretCheckingHarness();
+        when(harness.freezer().freeze(anyString(), anyString(), anyString(), any(), anyBoolean(), any()))
+                .thenReturn(candidateAdding("README.md", "Start the proxy with the token codemie-proxy."));
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains(Candidate.UNVERIFIED);
+    }
+
+    /** The agent finishes, and the runtime knows the model key and the public word of a local proxy. */
+    private TaskHarness secretCheckingHarness() {
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"));
+        when(harness.coding().holdsSecret(anyString())).thenAnswer(
+                call -> CodingRuntime.holdsAny(call.getArgument(0), List.of(MODEL_KEY, "codemie-proxy")));
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of("inputTokens", 10L)));
+        return harness;
+    }
+
+    private static Candidate candidateAdding(String file, String line) {
+        var patch = "diff --git a/" + file + " b/" + file + "\n--- a/" + file + "\n+++ b/" + file
+                + "\n@@ -1 +1,2 @@\n existing\n+" + line + "\n";
+        return new Candidate("repo", "a".repeat(40), "b".repeat(40), Candidate.sha256(patch), patch,
+                Candidate.UNVERIFIED);
+    }
+
+    @Test
+    void aFailedActivityWriteDuringCodingReachesTheRuntimeAndTheAttemptGoesOn() {
+        var audit = mock(AuditLog.class);
+        doThrow(new IllegalStateException("database down"))
+                .when(audit).record(any(), any(), any(), org.mockito.ArgumentMatchers.<Map<String, ?>>any());
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"), CodingTranscripts.none(), audit);
+        var reported = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any())).thenAnswer(call -> {
+            Consumer<Map<String, Object>> progress = call.getArgument(3);
+            // The runtime gets the failure, so it can log it once and note it in the transcript.
+            reported.set(catchThrowable(() -> progress.accept(Map.of("activity", "agent_start"))));
+            return CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                    CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"), "",
+                    Map.of());
+        });
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(reported.get()).isInstanceOf(IllegalStateException.class).hasMessage("database down");
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+    }
+
+    @Test
+    void aTaskAttemptThatLostItsSlotStopsWithoutAnyStageSideEffect() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        taskAttempts.ownsSlot = false;
+        var harness = taskHarness(taskAttempts);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(TaskStops.INSPECTION_STATE)
+                .contains("no longer owns the installation's active slot");
+        verify(harness.freezer(), never()).checkout(anyString(), anyString());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+        assertThat(taskAttempts.stops).anyMatch(stop -> stop.contains("no longer owns"));
+    }
+
+    @Test
+    void testFailureDoesNotRetryOrStartCoding() {
         verifyFailedBaseline(Toolchain.MAVEN, "[ERROR] There are test failures", false);
     }
 
-    @Test void repositoryNotFoundDoesNotRetryOrStartPi() {
+    @Test
+    void repositoryNotFoundDoesNotRetryOrStartCoding() {
         verifyFailedBaseline(Toolchain.MAVEN, "[ERROR] Could not find artifact org.example:missing:jar:1 in folio-nexus\n"
                 + "[ERROR] Could not find artifact org.example:missing:jar:1 in index-data-nexus", false);
     }
 
-    @Test void transientYarnInstallSignalsEngineRetryAndMakesZeroCodingCalls() {
-        verifyFailedBaseline(Toolchain.YARN, "error An unexpected error occurred: "
-                + "\"https://repository.folio.org/repository/npm-folioci/@folio%2fstripes/-/stripes.tgz: ETIMEDOUT\".", true);
+    @Test
+    void transientYarnInstallSignalsEngineRetryAndMakesZeroCodingCalls() {
+        verifyFailedBaseline(Toolchain.YARN, "error An unexpected error occurred: \"https://repository.folio.org/"
+                + "repository/npm-folioci/@folio%2fstripes/-/stripes.tgz: ETIMEDOUT\".", true);
     }
 
-    @Test void yarnTestFailureDoesNotRetryOrStartPi() {
+    @Test
+    void yarnTestFailureDoesNotRetryOrStartCoding() {
         verifyFailedBaseline(Toolchain.YARN, "FAIL src/api.test.js\n  Error: getaddrinfo ENOTFOUND api.example\n"
                 + "Tests:       1 failed, 3 passed, 4 total\nerror Command failed with exit code 1.", false);
     }
 
-    @Test void yarnPackageNotFoundDoesNotRetryOrStartPi() {
-        verifyFailedBaseline(Toolchain.YARN, "error Couldn't find package \"left-pad@^9\" required by \"app\" on the \"npm\" registry.", false);
+    @Test
+    void yarnPackageNotFoundDoesNotRetryOrStartCoding() {
+        verifyFailedBaseline(Toolchain.YARN,
+                "error Couldn't find package \"left-pad@^9\" required by \"app\" on the \"npm\" registry.", false);
     }
 
-    @Test void yarnLockfileErrorDoesNotRetryOrStartPi() {
-        verifyFailedBaseline(Toolchain.YARN, "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.", false);
+    @Test
+    void yarnLockfileErrorDoesNotRetryOrStartCoding() {
+        verifyFailedBaseline(Toolchain.YARN,
+                "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.", false);
     }
 
-    private record YarnScenario(DevelopWorker worker, AgentContext context, DockerWorkloads.Workload baseline,
-                                DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
-                                CandidateFreezer freezer,
-                                DockerWorkloads.Workload agent, CodingRuntime coding, List<String> install) { }
+    @Test
+    void yarnCodingContainerIsPreparedBeforeTheAgentAndTheRequestNamesTheVerificationCommand() {
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), true);
 
-    private YarnScenario yarnScenario(Processes.Result installResult) {
-        return yarnScenario(installResult, true);
-    }
-
-    private YarnScenario yarnScenario(Processes.Result installResult, boolean trackedLockfile) {
-        gitWorkspace(trackedLockfile);
-        var repo = new DevFactoryProperties.Repository("owner/repo", "master", "node:image", "jest", List.of("TASK"), List.of());
-        var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
-        var runtime = new DevRuntimeProperties(Map.of("jest", List.of("yarn", "test", "--maxWorkers=2")), null, 60, null,
-                Map.of(), Map.of("jest", Toolchain.YARN));
-        var environment = runtime.environment("jest");
-        var install = runtime.installCommand("jest");
-        var docker = mock(DockerWorkloads.class);
-        var stepScope = mock(DockerWorkloads.StepScope.class);
-        when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
-        var baseline = mock(DockerWorkloads.Workload.class);
-        var agent = mock(DockerWorkloads.Workload.class);
-        var freezer = mock(CandidateFreezer.class);
-        var coding = mock(CodingRuntime.class);
-        when(coding.image()).thenReturn("pi:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "pi", "image", "pi:image", "model", "model"));
-        when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
-        when(stepScope.createTrusted("node:image", workspace, environment)).thenReturn(baseline);
-        when(stepScope.createSeeded("pi:image", workspace, environment, "coding")).thenReturn(agent);
-        var mode = trackedLockfile ? InstallMode.FROZEN : InstallMode.RESOLVE;
-        when(baseline.readLockfile()).thenReturn(trackedLockfile ? java.util.Optional.empty() : java.util.Optional.of(LOCKFILE));
-        when(baseline.executeKeepingTail(eq(runtime.verificationCommand("jest", mode)), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
-                .thenReturn(new Processes.Result(0, "Done in 1s."));
-        when(agent.execute(install, 60)).thenReturn(installResult);
-        when(coding.code(eq(agent), any(CodingRequest.class), eq(60), any()))
-                .thenReturn(CodingOutcome.completed("Done", Map.of()));
-        when(freezer.freeze(eq("repo"), anyString(), anyString(), any(), eq(false), eq(Toolchain.YARN)))
-                .thenReturn(new org.folio.factory.devfactory.candidate.Candidate("repo", "a".repeat(40),
-                        "b".repeat(40), org.folio.factory.devfactory.candidate.Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
-        var codec = new FrontmatterCodec();
-        var brief = codec.render(Map.of("state", "INTAKE_READY", "repository", Map.of("key", "repo", "base_sha", "a".repeat(40))), "Task");
-        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(
-                IntakeResolveWorker.TASK_BRIEF, new ArtifactContent(IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief),
-                IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
-                        "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request()))),
-                null, Map.of(), List.of());
-        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker,
-                freezer, coding, codec, mock(AuditLog.class), model -> Map.of()), codec);
-        return new YarnScenario(worker, context, baseline, properties, runtime, docker, freezer, agent, coding, install);
-    }
-
-    @Test void yarnCodingContainerIsPreparedBeforeTheAgentAndTheRequestNamesTheVerificationCommand() {
-        var s = yarnScenario(new Processes.Result(0, "Done in 14s."));
-
-        var result = s.worker().execute(s.context());
+        var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("CANDIDATE_UNVERIFIED");
-        var request = org.mockito.ArgumentCaptor.forClass(CodingRequest.class);
-        var order = inOrder(s.agent(), s.coding());
-        order.verify(s.agent()).execute(s.install(), 60);
-        order.verify(s.coding()).code(eq(s.agent()), request.capture(), eq(60), any());
+        var request = ArgumentCaptor.forClass(CodingRequest.class);
+        var order = inOrder(harness.codingWorkload(), harness.coding());
+        order.verify(harness.codingWorkload()).execute(install(), 60, Processes.OUTPUT_LIMIT, null);
+        order.verify(harness.coding()).code(eq(harness.codingWorkload()), request.capture(), anyInt(), any(), any());
         assertThat(request.getValue().constraints().verificationCommand()).isEqualTo("yarn test --maxWorkers=2");
         assertThat(request.getValue().constraints().dependenciesInstalled()).isTrue();
+        var environment = YARN.environment("unit");
+        verify(harness.scope()).createTrusted("build:image", workspace, environment);
+        verify(harness.scope()).createSeeded("coding:image", workspace, environment, "coding");
+        verify(harness.baseline()).executeKeepingTail(eq(YARN.verificationCommand("unit")), eq(60),
+                eq(Processes.OUTPUT_LIMIT), any());
     }
 
-    private static final PinnedLockfile LOCKFILE = PinnedLockfile.of("# yarn lockfile v1\n\nleft-pad@^1.3.0:\n  version \"1.3.0\"\n"
-            .getBytes());
-
-    /**
-     * The base checkout: with a tracked lockfile, just that file; without one, a real Git repository,
-     * so the package.json blob is the one a pinned lockfile records. The worker removes it afterwards.
-     */
-    private void gitWorkspace(boolean trackedLockfile) {
-        try {
-            java.nio.file.Files.createDirectories(workspace);
-            if (trackedLockfile) {
-                java.nio.file.Files.writeString(workspace.resolve("yarn.lock"), "# yarn lockfile v1\n");
-                return;
-            }
-            CandidateFreezer.git(workspace, "init", "--quiet");
-            java.nio.file.Files.writeString(workspace.resolve("package.json"), "{\"name\":\"fixture\"}");
-            CandidateFreezer.git(workspace, "add", "--all");
-        } catch (java.io.IOException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    @Test void moduleWithoutALockfileIsPinnedByTheStartingBuildAndSeededBeforeTheCodingInstall() {
-        var s = yarnScenario(new Processes.Result(0, "Done in 14s."), false);
+    @Test
+    void moduleWithoutALockfileIsPinnedByTheStartingBuildAndSeededBeforeTheCodingInstall() {
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), false);
         String blob = CandidateFreezer.trackedBlob(workspace, "package.json");
 
-        var result = s.worker().execute(s.context());
+        var result = harness.worker().execute(harness.context());
 
         var pinned = PinnedLockfile.parse(result.outputs().get(DevelopWorker.LOCKFILE)).orElseThrow();
         assertThat(pinned.sha256()).isEqualTo(LOCKFILE.sha256());
@@ -236,144 +625,272 @@ class DevelopReadinessTest {
         assertThat(result.outputs().get(DevelopWorker.READINESS))
                 .contains("\"lockfile\":\"PINNED\"", "\"lockfileSha256\":\"" + LOCKFILE.sha256() + "\"")
                 .doesNotContain("--frozen-lockfile'");
-        var order = inOrder(s.agent(), s.coding());
-        order.verify(s.agent()).seedLockfile(pinned);
-        order.verify(s.agent()).execute(s.install(), 60);
-        order.verify(s.coding()).code(eq(s.agent()), any(CodingRequest.class), eq(60), any());
+        verify(harness.baseline()).executeKeepingTail(eq(YARN.verificationCommand("unit", InstallMode.RESOLVE)),
+                eq(60), eq(Processes.OUTPUT_LIMIT), any());
+        var order = inOrder(harness.codingWorkload(), harness.coding());
+        order.verify(harness.codingWorkload()).seedLockfile(pinned);
+        order.verify(harness.codingWorkload()).execute(YARN.installCommand("unit", InstallMode.FROZEN), 60,
+                Processes.OUTPUT_LIMIT, null);
+        order.verify(harness.coding()).code(eq(harness.codingWorkload()), any(CodingRequest.class), anyInt(), any(),
+                any());
     }
 
-    @Test void moduleThatTracksALockfileIsInstalledFrozenAndPinsNothing() {
-        var s = yarnScenario(new Processes.Result(0, "Done in 14s."));
+    @Test
+    void moduleThatTracksALockfileIsInstalledFrozenAndPinsNothing() {
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), true);
 
-        var result = s.worker().execute(s.context());
+        var result = harness.worker().execute(harness.context());
 
         assertThat(PinnedLockfile.parse(result.outputs().get(DevelopWorker.LOCKFILE))).isEmpty();
         assertThat(result.outputs().get(DevelopWorker.LOCKFILE)).contains("NOT_NEEDED");
         assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("\"lockfile\":\"TRACKED\"")
                 .doesNotContain("lockfileSha256");
-        verify(s.agent(), never()).seedLockfile(any());
+        verify(harness.codingWorkload(), never()).seedLockfile(any());
     }
 
-    @Test void clarificationRestartSeedsTheLockfileFromTheArtifactWithoutANewStartingBuild() {
-        var s = yarnScenario(new Processes.Result(0, "Done in 14s."), false);
-        var attempt = new org.folio.factory.devfactory.worker.InitialCodingAttempt(
-                s.properties(), s.runtime(), s.docker(), s.freezer(), s.coding(), new FrontmatterCodec(),
-                mock(AuditLog.class), model -> Map.of());
+    @Test
+    void clarificationRestartSeedsTheLockfileFromTheArtifactWithoutANewStartingBuild() {
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), false);
         var pinned = LOCKFILE.forPackageJson(CandidateFreezer.trackedBlob(workspace, "package.json"));
 
-        attempt.retry(s.context(), request(), tools.jackson.databind.json.JsonMapper.builder().build().readTree("{}"),
+        harness.attempt().retry(harness.context(), request(), JsonMapper.builder().build().readTree("{}"),
                 pinned.toArtifact());
 
-        verify(s.agent()).seedLockfile(pinned);
-        verify(s.baseline(), never()).executeKeepingTail(any(), anyInt(), anyInt(), any());
+        verify(harness.codingWorkload()).seedLockfile(pinned);
+        verify(harness.baseline(), never()).executeKeepingTail(any(), anyInt(), anyInt(), any());
     }
 
-    @Test void unusableGeneratedLockfileBlocksBeforeModelSpend() {
-        var s = yarnScenario(new Processes.Result(0, "Done in 14s."), false);
-        when(s.baseline().readLockfile()).thenThrow(new IllegalStateException("The generated yarn.lock is unusable: Not a usable yarn lockfile"));
+    @Test
+    void unusableGeneratedLockfileBlocksBeforeModelSpend() {
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), false);
+        when(harness.baseline().readLockfile())
+                .thenThrow(new IllegalStateException("The generated yarn.lock is unusable: Not a usable yarn lockfile"));
 
-        var result = s.worker().execute(s.context());
+        var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
-                .contains("could not pin the dependency lockfile");
-        verify(s.coding(), never()).code(any(), any(), anyInt(), any());
+                .contains(TaskStops.lockfileNotPinnedReason(
+                        "The generated yarn.lock is unusable: Not a usable yarn lockfile"));
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
     }
 
-    @Test void seedCopyFailureBlocksTheEnvironmentWithoutModelSpendAndKeepsThePin() {
-        var s = yarnScenario(new Processes.Result(0, "Done in 14s."), false);
-        var message = DockerWorkloads.seedFailure(300, "factory-dev-yarn-cache", 9L * 1024 * 1024, "Command exceeded 300 seconds");
-        var scope = s.docker().beginStep(UUID.randomUUID(), "implement");
-        when(scope.createSeeded(any(), any(), any(), eq("coding")))
+    @Test
+    void seedCopyFailureBlocksTheEnvironmentWithoutModelSpendAndKeepsThePin() {
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), false);
+        var message = DockerWorkloads.seedFailure(300, "factory-dev-yarn-cache", 9L * 1024 * 1024,
+                "Command exceeded 300 seconds");
+        when(harness.scope().createSeeded(any(), any(), any(), eq("coding")))
                 .thenThrow(new DockerWorkloads.CacheSeedException(message, new IllegalStateException("x")));
 
-        var result = s.worker().execute(s.context());
+        var result = harness.worker().execute(harness.context());
 
-        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT", "(9.0 GB)", "limit 300 s");
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("BLOCKED_ENVIRONMENT", "(9.0 GB)", "limit 300 s");
         assertThat(PinnedLockfile.parse(result.outputs().get(DevelopWorker.LOCKFILE))).isPresent();
-        verify(s.coding(), never()).code(any(), any(), anyInt(), any());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
     }
 
-    @Test void failedInstallInTheCodingContainerStopsBeforeAnyModelCall() {
-        var s = yarnScenario(new Processes.Result(1, "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."));
+    @Test
+    void failedInstallInTheCodingContainerStopsBeforeAnyModelCall() {
+        var harness = yarnHarness(new Processes.Result(1,
+                "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."), true);
 
-        var result = s.worker().execute(s.context());
+        var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
-                .contains("Workspace dependency install failed before model spend").contains("lockfile needs to be updated");
-        verify(s.coding(), never()).code(any(), any(), anyInt(), any());
-        verify(s.agent()).close();
+                .contains(TaskStops.codingInstallFailedReason(
+                        "Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."));
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+        verify(harness.codingWorkload()).close();
     }
 
-    @Test void registryTimeoutDuringTheCodingInstallAsksTheEngineToRetryWithoutAModelCall() {
-        var s = yarnScenario(new Processes.Result(1,
-                "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ETIMEDOUT\"."));
+    @Test
+    void registryTimeoutDuringTheCodingInstallAsksTheEngineToRetryWithoutAModelCall() {
+        var harness = yarnHarness(new Processes.Result(1,
+                "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ETIMEDOUT\"."), true);
 
-        assertThatThrownBy(() -> s.worker().execute(s.context())).isInstanceOf(AgentExecutionException.class)
+        assertThatThrownBy(() -> harness.worker().execute(harness.context()))
+                .isInstanceOf(AgentExecutionException.class)
                 .hasMessageContaining("Workspace dependency install hit a network/download failure")
                 .hasMessageContaining("coding has not started");
-        verify(s.coding(), never()).code(any(), any(), anyInt(), any());
-        verify(s.agent()).close();
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+        verify(harness.codingWorkload()).close();
     }
 
-    private void verifyFailedBaseline(Toolchain toolchain, String failure, boolean retryable) {
-        var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
-        var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
-        var plan = toolchain == Toolchain.YARN ? List.of("yarn", "test") : List.of("mvn", "test");
-        var runtime = new DevRuntimeProperties(Map.of("unit", plan), null, 60, null, Map.of(),
-                toolchain == Toolchain.YARN ? Map.of("unit", Toolchain.YARN) : Map.<String, Toolchain>of());
-        var environment = runtime.environment("unit");
-        if (toolchain == Toolchain.YARN) gitWorkspace(true);
-        var command = runtime.verificationCommand("unit");
+    @Test
+    void aRegistryTimeoutInTheCodingInstallOfATaskRunLeavesThePaidStartToTheEngineRetry() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        var harness = yarnHarness(new Processes.Result(0, "Done in 14s."), true, taskAttempts);
+        when(harness.codingWorkload().execute(anyList(), anyInt(), anyInt(), any())).thenReturn(
+                new Processes.Result(1, "error An unexpected error occurred: \"https://registry.example/pkg.tgz:"
+                        + " ETIMEDOUT\"."),
+                new Processes.Result(0, "Done in 14s."));
+
+        assertThatThrownBy(() -> harness.worker().execute(harness.context()))
+                .isInstanceOf(AgentExecutionException.class)
+                .hasMessageContaining("Workspace dependency install hit a network/download failure");
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        assertThat(taskAttempts.stops).isEmpty();
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+
+        gitWorkspace(true);
+        var retried = harness.worker().execute(harness.context());
+
+        assertThat(retried.outputs().get(DevelopWorker.CANDIDATE)).contains("CANDIDATE_UNVERIFIED");
+        assertThat(taskAttempts.paidStartClaims).isEqualTo(1);
+        assertThat(taskAttempts.stops).isEmpty();
+        verify(harness.coding(), times(1)).code(any(), any(), anyInt(), any(), any());
+    }
+
+    @Test
+    void aFailedCodingInstallOfATaskRunClaimsNoPaidStart() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        var harness = yarnHarness(new Processes.Result(1,
+                "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."), true,
+                taskAttempts);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
+                .contains(TaskStops.CODING_INSTALL_FAILED_START);
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
+    }
+
+    /** A yarn task whose starting build passes; the coding container's install returns {@code installResult}. */
+    private TaskHarness yarnHarness(Processes.Result installResult, boolean trackedLockfile) {
+        return yarnHarness(installResult, trackedLockfile, RecordingTaskAttempts.none());
+    }
+
+    private TaskHarness yarnHarness(Processes.Result installResult, boolean trackedLockfile,
+                                    RecordingTaskAttempts taskAttempts) {
+        gitWorkspace(trackedLockfile);
+        var harness = taskHarness(taskAttempts, CodingTranscripts.none(), mock(AuditLog.class),
+                SelectedRepositoryPreflight.none(), YARN);
+        when(harness.baseline().readLockfile())
+                .thenReturn(trackedLockfile ? Optional.empty() : Optional.of(LOCKFILE));
+        when(harness.codingWorkload().execute(anyList(), anyInt(), anyInt(), any())).thenReturn(installResult);
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of()));
+        when(harness.freezer().freeze(eq("repo"), anyString(), anyString(), any(), eq(false), eq(Toolchain.YARN)))
+                .thenReturn(new Candidate("repo", "a".repeat(40), "b".repeat(40), Candidate.sha256("patch"),
+                        "patch", "CANDIDATE_UNVERIFIED"));
+        return harness;
+    }
+
+    private static List<String> install() {
+        return YARN.installCommand("unit");
+    }
+
+    /**
+     * The base checkout: with a tracked lockfile, just that file; without one, a real Git repository,
+     * so the package.json blob is the one a pinned lockfile records. The worker removes it afterwards.
+     */
+    private void gitWorkspace(boolean trackedLockfile) {
+        try {
+            Files.createDirectories(workspace);
+            if (trackedLockfile) {
+                Files.writeString(workspace.resolve("yarn.lock"), "# yarn lockfile v1\n");
+                return;
+            }
+            CandidateFreezer.git(workspace, "init", "--quiet");
+            Files.writeString(workspace.resolve("package.json"), "{\"name\":\"fixture\"}");
+            CandidateFreezer.git(workspace, "add", "--all");
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /**
+     * Shared task harness: docker, freezer and coding stubs allow the attempt to
+     * run through baseline into coding; individual tests override specific stubs
+     * or the recording task policy state.
+     */
+    private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts) {
+        return taskHarness(taskAttempts, CodingTranscripts.none());
+    }
+
+    private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts, CodingTranscripts transcripts) {
+        return taskHarness(taskAttempts, transcripts, mock(AuditLog.class));
+    }
+
+    private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts, CodingTranscripts transcripts, AuditLog audit) {
+        return taskHarness(taskAttempts, transcripts, audit, SelectedRepositoryPreflight.none());
+    }
+
+    private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts, CodingTranscripts transcripts, AuditLog audit,
+                                    SelectedRepositoryPreflight selectedRepository) {
+        return taskHarness(taskAttempts, transcripts, audit, selectedRepository, MAVEN);
+    }
+
+    private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts, CodingTranscripts transcripts, AuditLog audit,
+                                    SelectedRepositoryPreflight selectedRepository, DevRuntimeProperties settings) {
+        var repository = new DevFactoryProperties.Repository(
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of(), null);
+        var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
         var docker = mock(DockerWorkloads.class);
-        var stepScope = mock(DockerWorkloads.StepScope.class);
-        when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
-        var workload = mock(DockerWorkloads.Workload.class);
+        var scope = mock(DockerWorkloads.StepScope.class);
+        var baseline = mock(DockerWorkloads.Workload.class);
+        var codingWorkload = mock(DockerWorkloads.Workload.class);
         var freezer = mock(CandidateFreezer.class);
         var coding = mock(CodingRuntime.class);
-        when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
-        when(stepScope.createTrusted("build:image", workspace, environment)).thenReturn(workload);
-        when(workload.executeKeepingTail(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
-                .thenAnswer(invocation -> {
-                    @SuppressWarnings("unchecked")
-                    java.util.function.Consumer<String> observer = invocation.getArgument(3);
-                    observer.accept(toolchain == Toolchain.YARN ? "[2/4] Fetching packages..." : "[INFO] --- compiler:3.16.0:compile (default-compile) @ module ---");
-                    return new Processes.Result(1, failure);
-                });
         var codec = new FrontmatterCodec();
-        var brief = codec.render(Map.of("state", "INTAKE_READY", "repository", Map.of("key", "repo", "base_sha", "a".repeat(40))), "Task");
-        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(
-                IntakeResolveWorker.TASK_BRIEF, new ArtifactContent(IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief),
-                IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
-                        "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request()))),
-                null, Map.of(), List.of());
-        var audit = mock(AuditLog.class);
-        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of()), codec);
-        if (retryable) {
-            // Repeated worker attempts retain the configured repository and do not add a global -U.
-            for (int attempt = 0; attempt < 2; attempt++) {
-                if (toolchain == Toolchain.YARN) gitWorkspace(true);
-                assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
-                        .hasMessageContaining("Starting build hit a network/download failure")
-                        .hasMessageContaining("coding has not started")
-                        .hasMessageContaining(toolchain == Toolchain.YARN ? "ETIMEDOUT" : "Saxon-HE");
-            }
-            verify(stepScope, times(2)).createTrusted("build:image", workspace, environment);
-            verify(workload, times(2)).executeKeepingTail(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any());
-        } else {
-            var result = worker.execute(context);
-            assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT");
-            assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_FAILED", "output");
-        }
-        verify(coding, never()).code(any(), any(), anyInt(), any());
-        verify(coding, never()).requireConfigured();
-        verify(audit, atLeastOnce()).record(eq(context.executionId()),
-                eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
-        verify(workload, times(retryable ? 2 : 1)).close();
+        var context = context(codec, request());
+        when(coding.image()).thenReturn("coding:image");
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
+        when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
+        when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
+        when(scope.createTrusted(anyString(), any(), any())).thenReturn(baseline);
+        when(scope.createSeeded(anyString(), any(), any(), anyString()))
+                .thenReturn(codingWorkload);
+        when(baseline.executeKeepingTail(anyList(), anyInt(), anyInt(), any()))
+                .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
+        when(coding.code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"), "",
+                        Map.of()));
+        var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings),
+                new CodingServices(coding, docker, freezer), codec, audit,
+                new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId, model) -> Map.of(), transcripts,
+                        selectedRepository), taskAttempts.guard());
+        return new TaskHarness(docker, scope, baseline, codingWorkload, freezer, coding, attempt,
+                new DevelopWorker(attempt, codec), context, settings);
+    }
+
+    private record TaskHarness(
+            DockerWorkloads docker,
+            DockerWorkloads.StepScope scope,
+            DockerWorkloads.Workload baseline,
+            DockerWorkloads.Workload codingWorkload,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            InitialCodingAttempt attempt,
+            DevelopWorker worker,
+            AgentContext context,
+            DevRuntimeProperties settings) {
+    }
+
+
+    private static AgentContext context(FrontmatterCodec codec, CodingRequest request) {
+        String brief = codec.render(
+                Map.of(
+                        "state", "INTAKE_READY",
+                        "repository", Map.of("key", "repo", "base_sha", request.repository().baseSha())),
+                "Task");
+        var briefArtifact = new ArtifactContent(
+                IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief);
+        var requestArtifact = new ArtifactContent(
+                IntakeResolveWorker.CODING_REQUEST, 1, "application/json",
+                JsonMapper.builder().build().writeValueAsString(request));
+        Map<String, ArtifactContent> inputs = Map.of(
+                IntakeResolveWorker.TASK_BRIEF, briefArtifact,
+                IntakeResolveWorker.CODING_REQUEST, requestArtifact);
+        return new AgentContext(UUID.randomUUID(), "implement", inputs, null, Map.of(), List.of());
     }
 
     private static CodingRequest request() {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "master", "a".repeat(40)),
-                CodingRequest.Constraints.defaults());
+                CodingRequest.Constraints.defaults(), null, List.of());
     }
 }

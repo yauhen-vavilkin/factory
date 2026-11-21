@@ -3,6 +3,6 @@ services:
     build:
       context: .
       dockerfile: factory-flow-dev-factory/docker/Dockerfile
-    image: ${FACTORY_PI_IMAGE:-${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21-node22}}
+    image: ${FACTORY_PI_IMAGE:-factory-dev-pi:0.85.1-java21-node22}
     entrypoint: ["/bin/sh", "-c"]
     command: ["test \"$$(pi --version)\" = '0.85.1' && test \"$$(node --version)\" = 'v22.22.0' && test \"$$(yarn --version)\" = '1.22.22'"]

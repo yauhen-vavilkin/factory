@@ -121,7 +121,8 @@ public class EngineMetrics {
     private void recordTokenCount(String workerId, String type, Object count) {
         if (count instanceof Number tokens && tokens.longValue() > 0) {
             Counter.builder("factory.llm.tokens")
-                    .description("LLM tokens consumed by agent worker steps, tagged by worker and prompt/completion type")
+                    .description("LLM tokens consumed by agent worker steps, tagged by worker and "
+                            + "prompt/completion type")
                     .tag("worker", workerId)
                     .tag("type", type)
                     .register(registry)

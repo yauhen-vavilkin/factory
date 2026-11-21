@@ -1,5 +1,7 @@
 package org.folio.factory.devfactory;
 
+import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.List;
@@ -39,8 +41,43 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
         repositories = copy;
     }
 
-    public record Repository(String sourceRepo, String baseBranch, String buildImage, String verificationPlan,
-                             List<String> jiraProjects, List<String> jiraComponents) {
+    /** Clone URL of a configured repository's source. */
+    public String sourceUrl(String repositoryKey) {
+        var repository = repositories.get(repositoryKey);
+        if (repository == null) {
+            throw new IllegalStateException("Missing trusted repository: " + repositoryKey);
+        }
+        return gitUrl(repository.sourceRepo());
+    }
+
+    /** Clone URL of a GitHub-style {@code owner/name} repository under the configured Git base URL. */
+    public String gitUrl(String sourceRepo) {
+        return gitUrl(gitBaseUrl, sourceRepo);
+    }
+
+    public static String gitUrl(String gitBaseUrl, String sourceRepo) {
+        return gitBaseUrl + "/" + sourceRepo + ".git";
+    }
+
+    /** The valid delivery destination of a configured repository. */
+    public DeliveryTarget requireDelivery(String repositoryKey) {
+        var repository = repositories.get(repositoryKey);
+        if (repository == null || repository.delivery() == null) {
+            throw new DeliveryBlockedException(
+                    "Missing delivery configuration for repository '" + repositoryKey + "'");
+        }
+        repository.delivery().requireValid();
+        return repository.delivery();
+    }
+
+    public record Repository(
+            String sourceRepo,
+            String baseBranch,
+            String buildImage,
+            String verificationPlan,
+            List<String> jiraProjects,
+            List<String> jiraComponents,
+            DeliveryTarget delivery) {
 
         public Repository {
             require(SOURCE_REPO, sourceRepo, "source-repo");
@@ -56,6 +93,21 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
             jiraProjects.forEach(project -> require(PROJECT_KEY, project, "jira-projects entry"));
             jiraProjects = List.copyOf(jiraProjects);
             jiraComponents = jiraComponents == null ? List.of() : List.copyOf(jiraComponents);
+            delivery = normalizeDeliveryBase(delivery, baseBranch);
+        }
+
+        private static DeliveryTarget normalizeDeliveryBase(DeliveryTarget delivery, String sourceBaseBranch) {
+            if (delivery == null) {
+                return null;
+            }
+            String deliveryBaseBranch = delivery.baseBranch();
+            if (deliveryBaseBranch != null
+                    && !deliveryBaseBranch.isBlank()
+                    && !sourceBaseBranch.equals(deliveryBaseBranch)) {
+                throw new IllegalArgumentException(
+                        "Repository delivery base-branch must match source base-branch");
+            }
+            return new DeliveryTarget(delivery.repository(), sourceBaseBranch);
         }
     }
 

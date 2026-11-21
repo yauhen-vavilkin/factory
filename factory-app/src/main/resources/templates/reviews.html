@@ -5,7 +5,7 @@
 <section class="page-body">
     <div class="page-header">
         <h1>Reviews</h1>
-        <p class="page-description">Human-in-the-loop gates and their decisions.</p>
+        <p class="page-description">Steps that wait for a person's decision, and the decisions made.</p>
     </div>
 
     <nav class="tabs" aria-label="Review status">
@@ -24,26 +24,27 @@
                 <th>Created</th>
                 <th th:if="${showDecision}">Decided</th>
                 <th th:if="${showDecision}">Decision</th>
-                <th><span class="sr-only">Actions</span></th>
+                <th class="cell-action"><span class="sr-only">Actions</span></th>
             </tr>
             </thead>
             <tbody>
             <tr th:each="r : ${reviews}">
-                <td th:text="${r['title']}"></td>
-                <td th:text="${r['flowId']}"></td>
-                <td th:text="${r['gateId']}"></td>
+                <td th:text="${r.title()}"></td>
+                <td class="nowrap" th:text="${r.flowName()}"></td>
+                <td class="nowrap" th:text="${r.gate()}"></td>
                 <td th:if="${showDecision}">
-                    <span th:replace="~{fragments/components :: statusBadge(${r['status']})}"></span>
+                    <span th:replace="~{fragments/components :: statusBadge(${r.status()})}"></span>
                 </td>
-                <td class="muted" th:text="${r['createdAt']}"></td>
-                <td class="muted" th:if="${showDecision}" th:text="${r['decidedAt']} ?: '—'"></td>
-                <td th:if="${showDecision}">
-                    <span th:if="${r['decision']}" th:text="${r['decision']}"></span>
-                    <span th:unless="${r['decision']}" class="muted">—</span>
-                    <span class="muted" th:if="${r['reviewer']}" th:text="' · ' + ${r['reviewer']}"></span>
+                <td class="muted nowrap"><time th:replace="~{fragments/components :: pageTime(${r.createdAt()})}"></time></td>
+                <td class="muted nowrap" th:if="${showDecision}"><time th:replace="~{fragments/components :: pageTime(${r.decidedAt()})}"></time><th:block
+                        th:if="${r.decidedAt() == null}">—</th:block></td>
+                <td class="nowrap" th:if="${showDecision}">
+                    <span th:if="${r.decision()}" th:text="${r.decision()}"></span>
+                    <span th:unless="${r.decision()}" class="muted">—</span>
+                    <span class="muted" th:if="${r.reviewer()}" th:text="' · ' + ${r.reviewer()}"></span>
                 </td>
-                <td>
-                    <a class="btn btn-outline btn-sm" th:href="@{'/reviews/' + ${r['id']}}">Review</a>
+                <td class="cell-action">
+                    <a class="btn btn-outline btn-sm btn-col" th:href="@{${r.url()}}" th:text="${r.action()}">Review</a>
                 </td>
             </tr>
             </tbody>

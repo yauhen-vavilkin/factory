@@ -13,7 +13,7 @@ class CodingRequestAttachmentsTest {
     private static CodingRequest request(List<CodingRequest.Attachment> attachments) {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(), List.of(),
                 new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
-                CodingRequest.Constraints.defaults(), attachments);
+                CodingRequest.Constraints.defaults(), null, attachments);
     }
 
     @Test
@@ -39,7 +39,7 @@ class CodingRequestAttachmentsTest {
 
     @Test
     void theNineArgumentConstructorMeansNoAttachments() {
-        assertThat(new CodingRequest("T-1", "s", "d", null, null, null, null, null, null).attachments()).isEmpty();
+        assertThat(new CodingRequest("T-1", "s", "d", null, null, null, null, null, null, null, List.of()).attachments()).isEmpty();
     }
 
     @Test

@@ -16,7 +16,7 @@ class PreparedWorkspaceTest {
     private final List<Map<String, Object>> events = new ArrayList<>();
     private final DevRuntimeProperties runtime = new DevRuntimeProperties(
             Map.of("maven", List.of("mvn", "test"), "jest", List.of("yarn", "test")), null, 60, null, Map.of(),
-            Map.of("jest", Toolchain.YARN));
+            Map.of("jest", Toolchain.YARN), null, 0);
     private final List<String> install = runtime.installCommand("jest");
 
     @Test
@@ -31,13 +31,13 @@ class PreparedWorkspaceTest {
 
     @Test
     void yarnPlansRunTheConfiguredInstallOnceAndReportIt() {
-        when(workload.execute(install, 60)).thenReturn(new Processes.Result(0, "Done in 14s."));
+        when(workload.execute(install, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Done in 14s."));
 
         var result = PreparedWorkspace.prepare(workload, runtime, "jest", events::add);
 
         assertThat(result.installed()).isTrue();
         assertThat(result.failed()).isFalse();
-        verify(workload).execute(install, 60);
+        verify(workload).execute(install, 60, Processes.OUTPUT_LIMIT, null);
         assertThat(events).extracting(e -> e.get("activity"))
                 .containsExactly("workspace_install_started", "workspace_install_completed");
         assertThat(events.get(0)).containsEntry("command", String.join(" ", install));
@@ -46,14 +46,24 @@ class PreparedWorkspaceTest {
     @Test
     void resolvingModeRunsTheInstallWithoutTheFrozenFlag() {
         var resolving = runtime.installCommand("jest", InstallMode.RESOLVE);
-        when(workload.execute(resolving, 60)).thenReturn(new Processes.Result(0, "Done in 14s."));
+        when(workload.execute(resolving, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Done in 14s."));
 
         var result = PreparedWorkspace.prepare(workload, runtime, "jest", InstallMode.RESOLVE, events::add);
 
         assertThat(result.installed()).isTrue();
         assertThat(resolving).isNotEqualTo(install).doesNotContain("--frozen-lockfile");
-        verify(workload).execute(resolving, 60);
+        verify(workload).execute(resolving, 60, Processes.OUTPUT_LIMIT, null);
         assertThat(events.get(0)).containsEntry("command", String.join(" ", resolving));
+    }
+
+    @Test
+    void theInstallRunsWithinTheGivenTimeout() {
+        when(workload.execute(install, 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Done in 14s."));
+
+        var result = PreparedWorkspace.prepare(workload, runtime, "jest", InstallMode.FROZEN, 30, events::add);
+
+        assertThat(result.installed()).isTrue();
+        verify(workload).execute(install, 30, Processes.OUTPUT_LIMIT, null);
     }
 
     @ParameterizedTest
@@ -61,7 +71,7 @@ class PreparedWorkspaceTest {
             "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ETIMEDOUT\".",
             "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ESOCKETTIMEDOUT\"."})
     void registryTimeoutsAreRetryable(String output) {
-        when(workload.execute(install, 60)).thenReturn(new Processes.Result(1, output));
+        when(workload.execute(install, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1, output));
 
         var result = PreparedWorkspace.prepare(workload, runtime, "jest", events::add);
 
@@ -72,7 +82,7 @@ class PreparedWorkspaceTest {
 
     @Test
     void otherInstallFailuresAreNotRetryableAndCarryTheYarnError() {
-        when(workload.execute(install, 60)).thenReturn(new Processes.Result(1,
+        when(workload.execute(install, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."));
 
         var result = PreparedWorkspace.prepare(workload, runtime, "jest", events::add);
@@ -84,7 +94,7 @@ class PreparedWorkspaceTest {
 
     @Test
     void aTransportFailureWithoutAnExitStatusIsAFailedInstall() {
-        when(workload.execute(install, 60)).thenThrow(new IllegalStateException("docker exec failed"));
+        when(workload.execute(install, 60, Processes.OUTPUT_LIMIT, null)).thenThrow(new IllegalStateException("docker exec failed"));
 
         var result = PreparedWorkspace.prepare(workload, runtime, "jest", events::add);
 

@@ -1,181 +1,571 @@
 package org.folio.factory.devfactory.runtime;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
-/** Bounded Claude stream projection. Only a single terminal result can complete an attempt. */
+/**
+ * The only reader of the Claude Code stream. One pass over the lines gives the outcome, the live
+ * activity and the transcript; only a single terminal result can complete an attempt.
+ */
+@Slf4j
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class ClaudeCodeProtocol implements Consumer<String> {
+    static final int TOOL_RESULT_LIMIT = 8 * 1024;
+    static final int TRANSCRIPT_LIMIT = 5 * 1024 * 1024;
+    private static final int MAX_TOOL_NAME_LENGTH = 80;
+    private static final int SUMMARY_LIMIT = 240;
+    private static final int REASON_DETAIL_LIMIT = 300;
     private static final JsonMapper JSON = JsonMapper.builder()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
-    private static final String USER_ECHO = "{\"type\":\"user\",\"message\":{\"role\":\"user\"";
-    private final String model;
-    private final UnaryOperator<String> redact;
-    private final Consumer<Map<String, Object>> progress;
-    private final Map<String, JsonNode> messages = new LinkedHashMap<>();
-    private JsonNode result;
-    private String invalid;
-    private String streamingMessage = "";
-    private int emitted;
-    private boolean initialized;
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .build();
 
-    ClaudeCodeProtocol(String model, UnaryOperator<String> redact, Consumer<Map<String, Object>> progress) {
-        this.model = model;
-        this.redact = redact;
-        this.progress = progress;
+    private final String model;
+    private final int maxTurns;
+    private final UnaryOperator<String> redactor;
+    private final Consumer<Map<String, Object>> progressListener;
+    private final CodingTranscripts.Sink transcript;
+    private final Map<String, JsonNode> messageUsage = new LinkedHashMap<>();
+    private final Map<String, ToolCall> openTools = new HashMap<>();
+    private JsonNode terminalResult;
+    private CodingOutcome failure;
+    private String streamingMessageId = "";
+    private boolean initialized;
+    private long transcriptSize;
+    private boolean transcriptCut;
+    private boolean activityLost;
+
+    private record ToolCall(String tool, String summaryKey, String summary, long startedNanos) {
     }
 
-    @Override public void accept(String line) {
-        if (line.isBlank() || invalid != null) return;
-        if (line.length() > 512 * 1024) {
-            // Claude Code repeats an image its agent opened as a base64 tool result; that echo says nothing about the result.
-            if (!line.startsWith(USER_ECHO)) invalid = "FRAME_TOO_LARGE";
+    /** True once the stream can no longer complete the attempt; reading more lines would only cost money. */
+    boolean failed() {
+        return failure != null;
+    }
+
+    /** The first transcript entry: the exact prompt sent to the CLI. */
+    void prompt(String text) {
+        record("prompt", Map.of("text", redactor.apply(text)));
+    }
+
+    @Override
+    public void accept(String line) {
+        if (line.isBlank() || failure != null) {
             return;
         }
-        JsonNode frame;
-        try { frame = JSON.readTree(line); }
-        catch (RuntimeException e) { invalid = "MALFORMED_FRAME"; return; }
-        if (!frame.isObject() || !frame.path("type").isString()) { invalid = "MALFORMED_FRAME"; return; }
-        if (result != null) { invalid = "INVALID_RESULT_SEQUENCE"; return; }
-        switch (frame.path("type").asString()) {
-            case "system" -> system(frame);
-            case "assistant" -> assistant(frame);
-            case "stream_event" -> streamEvent(frame.path("event"));
-            case "user" -> {
-                for (var block : frame.path("message").path("content"))
-                    if (block.path("type").asString("").equals("tool_result"))
-                        emit(Map.of("activity", "tool_execution_end", "error", block.path("is_error").asBoolean(false)));
-            }
-            case "result" -> {
-                result = frame;
-                usageProgress();
-                emit(Map.of("activity", "agent_end"));
-            }
-            default -> { /* Future diagnostic events are not completion evidence. */ }
+        try {
+            read(line);
+        } catch (RuntimeException exception) {
+            fail("PARSER_ERROR", "Factory could not process the Claude Code output ("
+                    + exception.getClass().getSimpleName() + "), so it stopped the run. Retry the task;"
+                    + " if it happens again, report it together with the transcript.");
         }
     }
 
-    private void system(JsonNode frame) {
-        switch (frame.path("subtype").asString("")) {
-            case "init" -> {
-                if (initialized || !frame.path("model").asString("").equals(model)) invalid = "IDENTITY_MISMATCH";
-                initialized = true;
-                emit(Map.of("activity", "agent_start"));
+    private void read(String line) {
+        var frame = readFrame(line);
+        if (frame.isEmpty()) {
+            fail("MALFORMED_FRAME", "Claude Code wrote an output line that is not a valid event, so Factory"
+                    + " stopped the run. Retry the task; if it happens again, check that the coding image"
+                    + " runs Claude Code " + ClaudeCodeCodingRuntime.VERSION + ".");
+            return;
+        }
+        if (terminalResult != null) {
+            fail("INVALID_RESULT_SEQUENCE", "Claude Code wrote more output after its final result, so Factory"
+                    + " cannot trust the result. Retry the task.");
+            return;
+        }
+        handleFrame(frame.get());
+    }
+
+    /** Empty when the line is not a JSON object with a string type. */
+    private static Optional<JsonNode> readFrame(String line) {
+        JsonNode frame;
+        try {
+            frame = JSON.readTree(line);
+        } catch (RuntimeException exception) {
+            return Optional.empty();
+        }
+        if (frame == null || !frame.isObject() || !frame.path("type").isString()) {
+            return Optional.empty();
+        }
+        return Optional.of(frame);
+    }
+
+    private void handleFrame(JsonNode frame) {
+        switch (frame.path("type").asString()) {
+            case "system" -> handleSystemFrame(frame);
+            case "assistant" -> handleAssistantFrame(frame);
+            case "stream_event" -> handleStreamEvent(frame.path("event"));
+            case "user" -> handleToolResults(frame);
+            case "result" -> handleResult(frame);
+            default -> {
+                // Future diagnostic events are not completion evidence.
             }
-            case "api_retry" -> emit(Map.of("activity", "auto_retry_start",
+        }
+    }
+
+    private void handleResult(JsonNode frame) {
+        terminalResult = frame;
+        publishUsage();
+        recordResult(frame);
+        emitActivity(Map.of("activity", "agent_end"));
+    }
+
+    private void handleSystemFrame(JsonNode frame) {
+        switch (frame.path("subtype").asString("")) {
+            case "init" -> startSession(frame.path("model").asString(""));
+            case "api_retry" -> emitActivity(Map.of(
+                    "activity", "auto_retry_start",
                     "attempt", Math.max(0, frame.path("attempt").asInt(0)),
                     "maxAttempts", Math.max(0, frame.path("max_retries").asInt(0))));
-            default -> { }
-        }
-    }
-
-    private void assistant(JsonNode frame) {
-        var message = frame.path("message");
-        String id = message.path("id").asString("");
-        if (!id.isBlank()) {
-            // Multiple content blocks can report the same message: replace, never double count.
-            messages.put(id, message.path("usage"));
-            usageProgress();
-        }
-        for (var block : message.path("content"))
-            if (block.path("type").asString("").equals("tool_use")) {
-                String tool = redact.apply(block.path("name").asString(""));
-                emit(Map.of("activity", "tool_execution_start", "tool",
-                        tool.replaceAll("[\\p{Cntrl}]", " ").substring(0, Math.min(80, tool.length()))));
+            default -> {
+                // Other system events do not affect the attempt state.
             }
+        }
     }
 
-    private void streamEvent(JsonNode event) {
+    private void startSession(String reportedModel) {
+        if (initialized) {
+            fail("IDENTITY_MISMATCH", "Claude Code started a second session in one run, so Factory"
+                    + " stopped it. Retry the task.");
+            return;
+        }
+        if (!reportedModel.equals(model)) {
+            fail("IDENTITY_MISMATCH", "Claude Code started with model " + summary(reportedModel)
+                    + " instead of " + model + ", so Factory stopped it. Check the model in the Developer"
+                    + " Flow settings and retry.");
+            return;
+        }
+        initialized = true;
+        emitActivity(Map.of("activity", "agent_start"));
+    }
+
+    private void handleAssistantFrame(JsonNode frame) {
+        JsonNode message = frame.path("message");
+        String messageId = message.path("id").asString("");
+        if (!messageId.isBlank()) {
+            // Multiple content blocks can report the same message: replace, never double count.
+            messageUsage.put(messageId, message.path("usage"));
+            publishUsage();
+        }
+        for (JsonNode block : message.path("content")) {
+            switch (block.path("type").asString("")) {
+                case "text" -> {
+                    String text = block.path("text").asString("");
+                    if (!text.isBlank()) record("text", Map.of("text", redactor.apply(text)));
+                }
+                case "tool_use" -> startTool(block);
+                default -> {
+                    // Thinking blocks stay private: they never reach activity or the transcript.
+                }
+            }
+        }
+    }
+
+    private void startTool(JsonNode block) {
+        String tool = toolName(block.path("name").asString(""));
+        String id = block.path("id").asString("");
+        JsonNode input = block.path("input");
+        String key = summaryKey(tool);
+        // The first line only: a heredoc or a script would otherwise join its lines into one long target.
+        String summary = key == null ? "" : summary(firstLine(input.path(summaryField(tool)).asString("")));
+        openTools.put(id, new ToolCall(tool, key, summary, System.nanoTime()));
+        var event = new LinkedHashMap<String, Object>();
+        event.put("activity", "tool_execution_start");
+        event.put("tool", tool);
+        if (!summary.isBlank()) event.put(key, summary);
+        emitActivity(event);
+        var entry = new LinkedHashMap<String, Object>();
+        entry.put("id", id);
+        entry.put("tool", tool);
+        entry.put("input", redactor.apply(input.isMissingNode() ? "{}"
+                : JSON.writerWithDefaultPrettyPrinter().writeValueAsString(input)));
+        record("tool_call", entry);
+    }
+
+    private void handleToolResults(JsonNode frame) {
+        for (JsonNode block : frame.path("message").path("content")) {
+            if ("tool_result".equals(block.path("type").asString(""))) {
+                finishTool(block);
+            }
+        }
+    }
+
+    private void finishTool(JsonNode block) {
+        var id = block.path("tool_use_id").asString("");
+        var call = openTools.remove(id);
+        var error = block.path("is_error").asBoolean(false);
+        var text = redactor.apply(resultText(block.path("content")));
+        var event = new LinkedHashMap<String, Object>();
+        event.put("activity", "tool_execution_end");
+        var entry = new LinkedHashMap<String, Object>();
+        entry.put("id", id);
+        if (call != null) {
+            addCallDetails(call, event, entry);
+        }
+        event.put("error", error);
+        if (error) {
+            event.put("errorText", summary(text));
+        }
+        emitActivity(event);
+        entry.put("error", error);
+        entry.put("text", clipToolResult(text));
+        record("tool_result", entry);
+    }
+
+    /** One duration for both the activity event and the transcript entry. */
+    private static void addCallDetails(ToolCall call, Map<String, Object> event, Map<String, Object> entry) {
+        long durationMs = Math.max(0, (System.nanoTime() - call.startedNanos()) / 1_000_000);
+        event.put("tool", call.tool());
+        if (!call.summary().isBlank()) {
+            event.put(call.summaryKey(), call.summary());
+        }
+        event.put("durationMs", durationMs);
+        entry.put("tool", call.tool());
+        entry.put("durationMs", durationMs);
+    }
+
+    private static String clipToolResult(String text) {
+        if (text.length() <= TOOL_RESULT_LIMIT) {
+            return text;
+        }
+        return text.substring(0, TOOL_RESULT_LIMIT) + "\n[cut: " + (text.length() - TOOL_RESULT_LIMIT)
+                + " more characters]";
+    }
+
+    private void handleStreamEvent(JsonNode event) {
         switch (event.path("type").asString("")) {
             case "message_start" -> {
-                streamingMessage = event.path("message").path("id").asString("");
-                if (!streamingMessage.isBlank())
-                    messages.put(streamingMessage, event.path("message").path("usage"));
+                JsonNode message = event.path("message");
+                streamingMessageId = message.path("id").asString("");
+                if (!streamingMessageId.isBlank()) {
+                    messageUsage.put(streamingMessageId, message.path("usage"));
+                }
             }
-            case "message_delta" -> {
-                // Assistant content is emitted before this final per-message output count.
-                if (streamingMessage.isBlank()) return;
-                var usage = JSON.createObjectNode();
-                var previous = messages.get(streamingMessage);
-                if (previous != null && previous.isObject()) previous.properties().forEach(e -> usage.set(e.getKey(), e.getValue()));
-                if (event.path("usage").isObject()) event.path("usage").properties().forEach(e -> usage.set(e.getKey(), e.getValue()));
-                messages.put(streamingMessage, usage);
-                usageProgress();
+            case "message_delta" -> updateStreamingUsage(event.path("usage"));
+            case "message_stop" -> streamingMessageId = "";
+            default -> {
+                // Text/tool deltas contain private content, not usage evidence.
             }
-            case "message_stop" -> streamingMessage = "";
-            default -> { /* Text/tool deltas contain private content, not usage evidence. */ }
         }
     }
 
-    private void usageProgress() {
-        var event = new LinkedHashMap<>(metrics());
-        event.put("activity", "coding_usage");
-        progress.accept(event);
+    private void updateStreamingUsage(JsonNode delta) {
+        // Assistant content is emitted before this final per-message output count.
+        if (streamingMessageId.isBlank()) {
+            return;
+        }
+        ObjectNode mergedUsage = JSON.createObjectNode();
+        copyUsageFields(mergedUsage, messageUsage.get(streamingMessageId));
+        copyUsageFields(mergedUsage, delta);
+        messageUsage.put(streamingMessageId, mergedUsage);
+        publishUsage();
     }
 
-    private void emit(Map<String, Object> event) { if (emitted++ < 200) progress.accept(event); }
+    private static void copyUsageFields(ObjectNode target, JsonNode source) {
+        if (source != null && source.isObject()) {
+            for (var entry : source.properties()) {
+                target.set(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    private void recordResult(JsonNode result) {
+        var entry = new LinkedHashMap<String, Object>();
+        entry.put("subtype", clip(result.path("subtype").asString(""), 80));
+        entry.put("error", result.path("is_error").asBoolean(true));
+        entry.put("text", redactor.apply(String.join("\n", errorsOrResult(result))));
+        if (result.path("num_turns").isIntegralNumber()) entry.put("turns", result.path("num_turns").asLong());
+        if (result.path("duration_ms").isIntegralNumber()) entry.put("durationMs", result.path("duration_ms").asLong());
+        entry.put("usage", reportedUsage(result.path("usage")).toClaudeMetrics());
+        record("result", entry);
+    }
+
+    private void publishUsage() {
+        var event = new LinkedHashMap<>(metrics());
+        event.put("activity", "coding_usage");
+        emitActivity(event);
+    }
+
+    private void emitActivity(Map<String, Object> event) {
+        try {
+            progressListener.accept(event);
+        } catch (RuntimeException e) {
+            // Live activity is best effort; it never decides the outcome. Log and note it once per run,
+            // so a database outage does not flood the log.
+            if (activityLost) return;
+            activityLost = true;
+            log.warn("Could not save Claude Code activity; later failures in this run are not logged: {}",
+                    redactor.apply(String.valueOf(e.getMessage())));
+            record("note", Map.of("text", "Some activity events could not be saved, so the activity log and"
+                    + " this transcript may be incomplete."));
+        }
+    }
+
+    private void record(String kind, Map<String, Object> detail) {
+        if (transcriptCut) return;
+        long size = detail.values().stream().mapToLong(value -> String.valueOf(value).length()).sum();
+        String entryKind = kind;
+        Map<String, Object> entryDetail = detail;
+        if (transcriptSize + size > TRANSCRIPT_LIMIT) {
+            transcriptCut = true;
+            entryKind = "note";
+            entryDetail = Map.of("text", "Transcript cut at 5 MB; the run went on.");
+        }
+        transcriptSize += size;
+        try {
+            transcript.add(new CodingTranscripts.Entry(entryKind, Instant.now(),
+                    Collections.unmodifiableMap(new LinkedHashMap<>(entryDetail))));
+        } catch (RuntimeException ignored) {
+            // The sink logs and marks its own write failures; the attempt goes on.
+        }
+    }
 
     Map<String, Object> metrics() {
         var metrics = new LinkedHashMap<String, Object>();
         metrics.put("provider", "anthropic-messages");
         metrics.put("model", model);
-        boolean complete = result != null && result.path("usage").isObject();
-        var usage = complete ? java.util.List.of(result.path("usage")) : messages.values();
-        boolean missing = usage.isEmpty() || messages.values().stream().anyMatch(item -> !hasTokenEvidence(item));
-        for (var item : usage) {
-            missing |= !hasTokenEvidence(item);
-            add(metrics, item, "input_tokens", "inputTokens");
-            add(metrics, item, "output_tokens", "outputTokens");
-            add(metrics, item, "cache_read_input_tokens", "cacheReadTokens");
-            add(metrics, item, "cache_creation_input_tokens", "cacheWriteTokens");
+
+        boolean hasTerminalUsage = terminalResult != null && terminalResult.path("usage").isObject();
+        Collection<JsonNode> usageSnapshots = messageUsage.values();
+        if (hasTerminalUsage) {
+            usageSnapshots = List.of(terminalResult.path("usage"));
         }
-        if (!complete || missing) metrics.put("usageIncomplete", true);
-        // Claude's cost is a client estimate, not the operator endpoint's bill. Factory uses its rate card.
-        if (result != null && result.path("total_cost_usd").isNumber()
-                && Double.isFinite(result.path("total_cost_usd").asDouble())
-                && result.path("total_cost_usd").asDouble() >= 0)
-            metrics.put("runtimeEstimatedCostUsd", result.path("total_cost_usd").decimalValue());
+        boolean hasCompleteUsage = hasTerminalUsage
+                && !usageSnapshots.isEmpty()
+                && messageUsage.values().stream().allMatch(ClaudeCodeProtocol::hasTokenEvidence);
+        var total = TokenUsage.NONE;
+        for (JsonNode usage : usageSnapshots) {
+            if (!hasTokenEvidence(usage)) {
+                hasCompleteUsage = false;
+            }
+            total = total.plus(reportedUsage(usage));
+        }
+        metrics.putAll((hasCompleteUsage ? total : total.incomplete()).toClaudeMetrics());
+        addRuntimeEstimate(metrics);
         return metrics;
+    }
+
+    /** The counts of one Anthropic usage object; a missing or negative count is not reported. */
+    private static TokenUsage reportedUsage(JsonNode usage) {
+        JsonNode cacheCreation = usage.path("cache_creation");
+        return new TokenUsage(tokenCount(usage, "input_tokens"), tokenCount(usage, "cache_read_input_tokens"),
+                tokenCount(usage, "cache_creation_input_tokens"),
+                tokenCount(cacheCreation, "ephemeral_5m_input_tokens"),
+                tokenCount(cacheCreation, "ephemeral_1h_input_tokens"), tokenCount(usage, "output_tokens"),
+                null, null, false);
+    }
+
+    private void addRuntimeEstimate(Map<String, Object> metrics) {
+        if (terminalResult == null) {
+            return;
+        }
+        JsonNode estimate = terminalResult.path("total_cost_usd");
+        if (estimate.isNumber() && Double.isFinite(estimate.asDouble()) && estimate.asDouble() >= 0) {
+            // Claude's cost is a client estimate, not the operator endpoint's bill.
+            metrics.put("runtimeEstimatedCostUsd", estimate.decimalValue());
+        }
     }
 
     private static boolean hasTokenEvidence(JsonNode usage) {
         // Claude substitutes zeroes when the endpoint omits usage. A generated answer
         // needs positive output and some input evidence, including fully cached input.
-        return usage.path("input_tokens").isIntegralNumber() && usage.path("input_tokens").asLong() >= 0
+        JsonNode inputTokens = usage.path("input_tokens");
+        boolean hasInputEvidence = positive(inputTokens)
+                || positive(usage.path("cache_read_input_tokens"))
+                || positive(usage.path("cache_creation_input_tokens"));
+        return inputTokens.isIntegralNumber()
+                && inputTokens.asLong() >= 0
                 && positive(usage.path("output_tokens"))
-                && (positive(usage.path("input_tokens")) || positive(usage.path("cache_read_input_tokens"))
-                    || positive(usage.path("cache_creation_input_tokens")));
+                && hasInputEvidence;
     }
 
-    private static boolean positive(JsonNode value) { return value.isIntegralNumber() && value.asLong() > 0; }
-
-    private static void add(Map<String, Object> metrics, JsonNode item, String from, String to) {
-        if (item.path(from).isIntegralNumber() && item.path(from).asLong() >= 0)
-            metrics.merge(to, item.path(from).asLong(), (a, b) -> (Long) a + (Long) b);
+    private static boolean positive(JsonNode value) {
+        return value.isIntegralNumber() && value.asLong() > 0;
     }
 
-    CodingOutcome outcome(int exitCode) {
-        if (invalid != null) return failed(invalid, "Claude Code returned an invalid event stream");
-        if (result != null && (result.path("is_error").asBoolean(true)
-                || !result.path("subtype").asString("").equals("success"))) {
-            String code = switch (result.path("subtype").asString("")) {
-                case "error_max_turns" -> "TURN_LIMIT";
-                case "error_max_budget_usd" -> "BUDGET_LIMIT";
-                default -> "PROVIDER_FAILED";
-            };
-            return failed(code, "Claude Code did not complete the attempt (" + code + ")");
+    private static Long tokenCount(JsonNode usage, String providerField) {
+        JsonNode value = usage.path(providerField);
+        return value.isIntegralNumber() && value.asLong() >= 0 ? value.asLong() : null;
+    }
+
+    /**
+     * The outcome of a finished command: Factory's own stops first, then what the CLI reported. {@code lineLimit}
+     * is the line limit the command ran with.
+     */
+    CodingOutcome outcome(Processes.Streamed run, int timeoutSeconds, int lineLimit) {
+        if (run.timedOut()) {
+            long minutes = Math.max(1, Math.round(timeoutSeconds / 60.0));
+            return fail("TIME_LIMIT", TaskStops.timeLimitReason(minutes));
         }
-        if (exitCode != 0) return failed("RUNTIME_EXIT", "Claude Code exited with code " + exitCode);
-        if (!initialized || result == null || !result.path("is_error").isBoolean()
-                || result.path("result").asString("").isBlank())
-            return failed("INCOMPLETE_RESULT", "Claude Code did not return a completed coding result");
-        return CodingProtocol.answer(redact.apply(result.path("result").asString()), metrics(), "Claude Code");
+        if (run.lineTooLarge() && failure == null) {
+            return fail("FRAME_TOO_LARGE", "Claude Code wrote one output line larger than "
+                    + lineLimit / (1024 * 1024) + " MB, so Factory stopped it. Retry the task;"
+                    + " if it happens again, look in the transcript for the tool that returned so much output.");
+        }
+        return outcome(run.exitCode(), run.stderrTail());
     }
 
-    private CodingOutcome failed(String code, String message) { return CodingOutcome.failed(code, message, metrics()); }
+    private CodingOutcome outcome(int exitCode, String stderrTail) {
+        if (failure != null) {
+            return failure;
+        }
+        if (terminalResult != null && (terminalResult.path("is_error").asBoolean(true)
+                || !"success".equals(terminalResult.path("subtype").asString("")))) {
+            return resultFailure(terminalResult);
+        }
+        if (exitCode != 0) {
+            return exitFailure(exitCode, stderrTail);
+        }
+        if (!initialized || terminalResult == null || !terminalResult.path("is_error").isBoolean()
+                || terminalResult.path("result").asString("").isBlank()) {
+            return fail("INCOMPLETE_RESULT", "Claude Code ended without a final answer. Retry the task."
+                    + detail("Last error output", stderrTail, true));
+        }
+        return answer(terminalResult);
+    }
+
+    private CodingOutcome resultFailure(JsonNode result) {
+        var subtype = clip(result.path("subtype").asString(""), 80);
+        var text = String.join("; ", errorsOrResult(result));
+        return switch (subtype) {
+            case "error_max_turns" -> fail("TURN_LIMIT", TaskStops.turnLimitReason(maxTurns));
+            case "error_max_budget_usd" -> fail("BUDGET_LIMIT", "Claude Code reached its spending limit"
+                    + " before it finished the task. Retry with a lower effort or a smaller task."
+                    + detail("CLI message", text, false));
+            default -> fail("PROVIDER_FAILED", "Claude Code stopped with an error (subtype "
+                    + (subtype.isBlank() ? "unknown" : subtype) + apiStatus(result) + "). Check the"
+                    + " provider and the Developer Flow settings, then retry." + detail("Error", text, false));
+        };
+    }
+
+    private CodingOutcome exitFailure(int exitCode, String stderrTail) {
+        if (!initialized && exitCode >= 125 && exitCode <= 127) {
+            return fail("RUNTIME_ERROR", "Docker could not start Claude Code in the coding container (exit "
+                    + exitCode + "). Check that Docker is running and the coding image is correct, then retry."
+                    + detail("Last error output", stderrTail, true));
+        }
+        return fail("RUNTIME_EXIT", "Claude Code exited with code " + exitCode + " before it returned a"
+                + " result. Check the coding runtime settings and retry."
+                + detail("Last error output", stderrTail, true));
+    }
+
+    private CodingOutcome answer(JsonNode result) {
+        var answer = redactor.apply(result.path("result").asString());
+        var outcome = CodingProtocol.answer(answer, metrics(), "Claude Code");
+        if (outcome.status() == CodingOutcome.Status.FAILED) {
+            note(outcome.failure().message());
+        }
+        return outcome;
+    }
+
+    /** A failure found outside the stream, such as a Docker error before the CLI started. */
+    CodingOutcome fail(String code, String message) {
+        if (failure == null) {
+            failure = CodingOutcome.failed(code, message, metrics());
+            note(message);
+        }
+        return failure;
+    }
+
+    private void note(String text) {
+        record("note", Map.of("text", "Factory stopped the run: " + text));
+    }
+
+    private List<String> errorsOrResult(JsonNode result) {
+        var texts = new ArrayList<String>();
+        result.path("errors").forEach(error -> texts.add(error.isString() ? error.asString() : error.toString()));
+        if (texts.isEmpty() && !result.path("result").asString("").isBlank()) {
+            texts.add(result.path("result").asString());
+        }
+        return texts;
+    }
+
+    private static String apiStatus(JsonNode result) {
+        JsonNode status = result.path("api_error_status");
+        return status.isIntegralNumber() ? ", API status " + status.asInt() : "";
+    }
+
+    /** At most {@link #REASON_DETAIL_LIMIT} redacted characters; redaction runs before the cut. */
+    private String detail(String label, String text, boolean keepEnd) {
+        String clean = oneLine(redactor.apply(text == null ? "" : text));
+        if (clean.isBlank()) return "";
+        if (clean.length() > REASON_DETAIL_LIMIT) clean = keepEnd
+                ? "…" + clean.substring(clean.length() - REASON_DETAIL_LIMIT)
+                : clean.substring(0, REASON_DETAIL_LIMIT) + "…";
+        return " " + label + ": " + clean;
+    }
+
+    private String summary(String text) {
+        return clip(oneLine(redactor.apply(text)), SUMMARY_LIMIT);
+    }
+
+    private String toolName(String name) {
+        return clip(oneLine(redactor.apply(name)), MAX_TOOL_NAME_LENGTH);
+    }
+
+    private static String summaryKey(String tool) {
+        return switch (tool) {
+            case "Bash" -> "command";
+            case "Read", "Edit", "Write", "NotebookEdit" -> "path";
+            case "Glob", "Grep" -> "pattern";
+            case "WebFetch" -> "url";
+            default -> null;
+        };
+    }
+
+    private static String summaryField(String tool) {
+        return switch (tool) {
+            case "Bash" -> "command";
+            case "NotebookEdit" -> "notebook_path";
+            case "Read", "Edit", "Write" -> "file_path";
+            case "Glob", "Grep" -> "pattern";
+            case "WebFetch" -> "url";
+            default -> "";
+        };
+    }
+
+    private static String resultText(JsonNode content) {
+        if (content.isString()) return content.asString();
+        if (!content.isArray()) return content.isMissingNode() || content.isNull() ? "" : content.toString();
+        var parts = new ArrayList<String>();
+        for (JsonNode part : content) {
+            switch (part.path("type").asString("")) {
+                case "text" -> parts.add(part.path("text").asString(""));
+                case "image" -> parts.add("[image]");
+                default -> parts.add(part.toString());
+            }
+        }
+        return String.join("\n", parts);
+    }
+
+    private static String firstLine(String text) {
+        return text.strip().lines().findFirst().orElse("");
+    }
+
+    private static String oneLine(String text) {
+        return text.replaceAll("[\\p{Cntrl}\\s]+", " ").strip();
+    }
+
+    private static String clip(String text, int limit) {
+        return text.length() <= limit ? text : text.substring(0, limit);
+    }
 }

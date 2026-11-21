@@ -66,18 +66,17 @@ class PiCodingHttpContractTest {
         });
         server.start();
         try {
-            var pi = new DevRuntimeProperties.Pi(null, null, null, null, null, null, null, null, null, true);
-            var config = new DevRuntimeProperties.Coding(image, "codemie", "gemini-3.8-flash",
-                    "http://host.docker.internal:" + server.getAddress().getPort() + "/v1",
-                    "openai-completions", "contract-test-key", "pi", "high", 65536, pi, null);
+            var config = new DevRuntimeProperties.Pi(image, "codemie", "gemini-3.8-flash",
+                    "http://host.docker.internal:" + server.getAddress().getPort() + "/v1", "openai-completions",
+                    "contract-test-key", null, "high", 65536, true);
             var request = new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(),
                     List.of(), List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main",
-                    "a".repeat(40)), CodingRequest.Constraints.defaults(),
+                    "a".repeat(40)), CodingRequest.Constraints.defaults(), null,
                     List.of(new CodingRequest.Attachment("1", "noise.png", "image/png", png.size(), "", "")));
             var runtime = new ImageStagingRuntime(new PiCodingRuntime(config), jira, new DevAttachmentProperties());
             try (var scope = new DockerWorkloads().beginStep(java.util.UUID.randomUUID(), "coding-image-contract");
                  var workload = scope.createSeeded(image, workspace, BuildEnvironment.maven("factory-dev-m2-cache"), "coding")) {
-                var outcome = runtime.code(workload, request, 120);
+                var outcome = runtime.code(workload, request, 120, event -> {}, CodingTranscripts.NONE);
                 assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             }
             var body = JsonMapper.builder().build().readTree(captured.get().body());
@@ -113,18 +112,19 @@ class PiCodingHttpContractTest {
         });
         server.start();
         try {
-            var config = new DevRuntimeProperties.Coding(image, "codemie", "gemini-3.8-flash",
-                    "http://host.docker.internal:" + server.getAddress().getPort() + "/v1",
-                    "openai-completions", "contract-test-key", "pi", "high", 65536);
+            var config = new DevRuntimeProperties.Pi(image, "codemie", "gemini-3.8-flash",
+                    "http://host.docker.internal:" + server.getAddress().getPort() + "/v1", "openai-completions",
+                    "contract-test-key", null, "high", 65536, false);
             var request = new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(),
                     List.of(), List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main",
-                    "a".repeat(40)), CodingRequest.Constraints.defaults());
+                    "a".repeat(40)), CodingRequest.Constraints.defaults(), null, List.of());
             try (var scope = new DockerWorkloads().beginStep(java.util.UUID.randomUUID(), "coding-contract");
                  var workload = scope.createSeeded(image, workspace, environment, "coding")) {
                 if (environment.toolchain() == Toolchain.YARN)
                     assertThat(workload.execute(List.of("sh", "-c", "node --version | grep -q '^v22\\.' "
-                            + "&& yarn --version | grep -q '^1\\.' && test \"$CI\" = true"), 30).exitCode()).isZero();
-                assertThat(new PiCodingRuntime(config).code(workload, request, 90).status())
+                            + "&& yarn --version | grep -q '^1\\.' && test \"$CI\" = true"), 30,
+                            Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
+                assertThat(new PiCodingRuntime(config).code(workload, request, 90, event -> {}, CodingTranscripts.NONE).status())
                         .isEqualTo(CodingOutcome.Status.COMPLETED);
             }
             assertThat(captured.get()).isNotNull();

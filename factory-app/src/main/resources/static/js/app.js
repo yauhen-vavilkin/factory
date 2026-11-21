@@ -65,8 +65,20 @@
     });
   }
 
+  // Activity shows its newest rows; the earlier ones are in the page, hidden until the developer asks for them.
+  function initShowEarlier() {
+    document.querySelectorAll('[data-show-earlier]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var list = button.closest('.run-activity');
+        list.querySelectorAll('[data-earlier]').forEach(function (row) { row.hidden = false; });
+        button.parentElement.remove();
+      });
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     initDialogs();
+    initShowEarlier();
     dismissAlerts();
     initSampleSelect();
     initVersionTabs();

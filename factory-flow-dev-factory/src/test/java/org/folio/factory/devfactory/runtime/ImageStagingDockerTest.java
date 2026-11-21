@@ -31,7 +31,7 @@ class ImageStagingDockerTest {
     @TempDir Path source;
 
     @AfterEach void cleanup() {
-        Processes.run(null, List.of("docker", "volume", "rm", volume), 30);
+        Processes.run(null, List.of("docker", "volume", "rm", volume), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
     }
 
     @Test void theAgentCanReadTheImageThatWasStagedAndItIsNotPartOfTheWorkspace() throws Exception {
@@ -46,25 +46,27 @@ class ImageStagingDockerTest {
         var delegate = new CodingRuntime() {
             @Override public String id() { return "probe"; }
             @Override public String image() { return IMAGE; }
-            @Override public void requireConfigured() { }
-            @Override public boolean acceptsImages() { return true; }
-            @Override public CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds) {
+            @Override public void requireConfigured(CodingRequest.RunSettings settings) { }
+            @Override public boolean acceptsImages(CodingRequest.RunSettings settings) { return true; }
+            @Override public CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request,
+                                                int timeoutSeconds, Consumer<Map<String, Object>> progress,
+                                                CodingTranscripts.Sink transcript) {
                 var path = request.attachments().get(0).path();
                 var listing = workload.execute(List.of("sh", "-c", "id -u; ls -l " + path
-                        + "; sha256sum " + path + "; ls /workspace | grep -c img- || true"), 30);
+                        + "; sha256sum " + path + "; ls /workspace | grep -c img- || true"), 30, Processes.OUTPUT_LIMIT, null);
                 seen.set(listing.output());
                 return CodingOutcome.completed("probe", Map.of());
             }
         };
         var request = new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(), List.of(),
                 new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
-                CodingRequest.Constraints.defaults(),
+                CodingRequest.Constraints.defaults(), null,
                 List.of(new CodingRequest.Attachment("1", "shot.png", "image/png", png.length, "", "")));
 
         try (var scope = new DockerWorkloads().beginStep(executionId, "image-staging");
              var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             var outcome = new ImageStagingRuntime(delegate, jira, new DevAttachmentProperties())
-                    .code(workload, request, 60, (Consumer<Map<String, Object>>) event -> { });
+                    .code(workload, request, 60, event -> { }, CodingTranscripts.NONE);
             assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         }
 

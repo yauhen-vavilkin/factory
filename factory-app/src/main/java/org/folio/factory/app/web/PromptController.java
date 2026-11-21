@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.llm.PromptLoader;
 import org.folio.factory.agents.prompt.PromptCatalog;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,13 +13,10 @@ import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/api/prompts")
+@RequiredArgsConstructor
 public class PromptController {
 
     private final PromptCatalog catalog;
-
-    public PromptController(PromptCatalog catalog) {
-        this.catalog = catalog;
-    }
 
     public record PromptSummary(String workerId, String promptName) {
     }

@@ -8,13 +8,16 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * GitHub REST API client using the contents API — sufficient for committing
- * generated test files and opening pull requests in milestone 1.
+ * generated test files and opening pull requests.
  */
 public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
 
@@ -62,47 +65,71 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
 
     @Override
     public String createPullRequest(String repo, String headBranch, String baseBranch, String title, String body) {
+        return createPullRequest(repo, headBranch, baseBranch, title, body, false);
+    }
+
+    @Override
+    public String createPullRequest(String repo, String headBranch, String baseBranch, String title, String body,
+                                    boolean draft) {
         JsonNode response = restClient.post()
                 .uri("/repos/" + repo + "/pulls")
-                .body(Map.of("title", title, "head", headBranch, "base", baseBranch, "body", body))
+                .body(Map.of("title", title, "head", headBranch, "base", baseBranch, "body", body,
+                        "draft", draft))
                 .retrieve()
                 .body(JsonNode.class);
         return response.path("html_url").asString("");
     }
 
     @Override
-    public java.util.Optional<String> findOpenPullRequest(String repo, String headBranch, String baseBranch) {
+    public List<PullRequest> findPullRequests(String repo, String headBranch, String baseBranch) {
         String owner = repo.substring(0, repo.indexOf('/'));
         JsonNode response = restClient.get()
                 .uri(builder -> builder.path("/repos/" + repo + "/pulls")
-                        .queryParam("state", "open").queryParam("head", owner + ":" + headBranch)
+                        .queryParam("state", "all").queryParam("head", owner + ":" + headBranch)
                         .queryParam("base", baseBranch).build())
                 .retrieve().body(JsonNode.class);
-        if (response != null && response.isArray()) {
-            for (JsonNode pr : response) {
-                if (repo.equalsIgnoreCase(pr.path("head").path("repo").path("full_name").asString(""))
-                        && repo.equalsIgnoreCase(pr.path("base").path("repo").path("full_name").asString(""))
-                        && headBranch.equals(pr.path("head").path("ref").asString(""))
-                        && baseBranch.equals(pr.path("base").path("ref").asString(""))) {
-                    String url = pr.path("html_url").asString("");
-                    if (!url.isBlank()) return java.util.Optional.of(url);
-                }
+        if (response == null || !response.isArray()) {
+            return List.of();
+        }
+        List<PullRequest> matches = new ArrayList<>();
+        for (JsonNode pr : response) {
+            if (isSameHeadAndBase(pr, repo, headBranch, baseBranch)) {
+                matches.add(toPullRequest(pr));
             }
         }
-        return java.util.Optional.empty();
+        return List.copyOf(matches);
     }
 
-    private java.util.Optional<String> existingFileSha(String repo, String branch, String path) {
+    /** Only a pull request from a branch of this repository into this repository counts. */
+    private static boolean isSameHeadAndBase(JsonNode pr, String repo, String headBranch, String baseBranch) {
+        return repo.equalsIgnoreCase(pr.path("head").path("repo").path("full_name").asString(""))
+                && repo.equalsIgnoreCase(pr.path("base").path("repo").path("full_name").asString(""))
+                && headBranch.equals(pr.path("head").path("ref").asString(""))
+                && baseBranch.equals(pr.path("base").path("ref").asString(""));
+    }
+
+    private static PullRequest toPullRequest(JsonNode pr) {
+        return new PullRequest(
+                pr.path("html_url").asString(""),
+                pr.path("state").asString(""),
+                // The list endpoint has no "merged" field; a merged pull request has a merge time.
+                pr.hasNonNull("merged_at"),
+                pr.path("head").path("ref").asString(""),
+                pr.path("head").path("sha").asString(""),
+                pr.path("base").path("ref").asString(""));
+    }
+
+    private Optional<String> existingFileSha(String repo, String branch, String path) {
         try {
             JsonNode existing = restClient.get()
                     .uri("/repos/" + repo + "/contents/" + path + "?ref=" + branch)
                     .retrieve()
                     .body(JsonNode.class);
             String sha = existing.path("sha").asString("");
-            return sha == null || sha.isBlank() ? java.util.Optional.empty() : java.util.Optional.of(sha);
+            return sha == null || sha.isBlank() ? Optional.empty() : Optional.of(sha);
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatusCode.valueOf(404)) {
-                return java.util.Optional.empty();
+                return Optional.empty();
             }
             throw e;
         }

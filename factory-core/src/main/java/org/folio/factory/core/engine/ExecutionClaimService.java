@@ -1,11 +1,11 @@
 package org.folio.factory.core.engine;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.limits.LimitsProperties;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,17 +18,12 @@ import java.util.UUID;
  * with row locks, and recovering executions whose worker died mid-step.
  */
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class ExecutionClaimService {
-
-    private static final Logger log = LoggerFactory.getLogger(ExecutionClaimService.class);
 
     private final PipelineExecutionRepository executions;
     private final LimitsProperties limits;
-
-    public ExecutionClaimService(PipelineExecutionRepository executions, LimitsProperties limits) {
-        this.executions = executions;
-        this.limits = limits;
-    }
 
     /**
      * Claims up to {@code limit} runnable executions and flips them to RUNNING in
@@ -96,7 +91,8 @@ public class ExecutionClaimService {
         Instant threshold = Instant.now().minusSeconds(leaseTimeoutSeconds);
         List<PipelineExecution> stale = executions.findByStatusAndUpdatedAtBefore(ExecutionStatus.RUNNING, threshold);
         for (PipelineExecution execution : stale) {
-            log.warn("Reaping stale RUNNING execution {} (last update {})", execution.getId(), execution.getUpdatedAt());
+            log.warn("Reaping stale RUNNING execution {} (last update {})", execution.getId(),
+                    execution.getUpdatedAt());
             execution.setStatus(ExecutionStatus.PENDING);
             execution.setNextRunAt(Instant.now());
         }

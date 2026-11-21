@@ -1,7 +1,6 @@
 package org.folio.factory.app;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -12,9 +11,8 @@ import org.springframework.stereotype.Component;
  * Deliberately not a hard failure: tests and advisory setups must still boot.
  */
 @Component
+@Slf4j
 class LlmProviderKeyStartupCheck {
-
-    private static final Logger log = LoggerFactory.getLogger(LlmProviderKeyStartupCheck.class);
 
     LlmProviderKeyStartupCheck(@Value("${spring.ai.model.chat:anthropic}") String provider,
                                @Value("${spring.ai.anthropic.api-key:}") String anthropicKey,

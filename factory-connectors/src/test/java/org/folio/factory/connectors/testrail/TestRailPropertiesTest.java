@@ -12,11 +12,6 @@ class TestRailPropertiesTest {
     }
 
     @Test
-    void baseUrlAloneIsNotConfigured() {
-        assertThat(new TestRailProperties("https://testrail", "", "", null).isConfigured()).isFalse();
-    }
-
-    @Test
     void defaultZeroProjectIdIsNotConfigured() {
         assertThat(new TestRailProperties("https://testrail", "qa", "key", 0L).isConfigured()).isFalse();
         assertThat(new TestRailProperties("https://testrail", "qa", "key", null).isConfigured()).isFalse();

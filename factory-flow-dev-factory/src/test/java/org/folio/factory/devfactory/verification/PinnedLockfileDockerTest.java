@@ -82,14 +82,14 @@ class PinnedLockfileDockerTest {
     @TempDir Path root;
 
     @AfterEach void cleanup() {
-        Processes.run(null, List.of("docker", "rm", "--force", registry), 30);
-        Processes.run(null, List.of("docker", "volume", "rm", volume), 30);
+        Processes.run(null, List.of("docker", "rm", "--force", registry), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
+        Processes.run(null, List.of("docker", "volume", "rm", volume), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
     }
 
     @Test void fixtureWithoutALockfileVerifiesWithThePinnedVersionAfterANewerSnapshotIsPublished() throws Exception {
         String registryUrl = startRegistry(List.of("1.0.0"));
         var runtime = new DevRuntimeProperties(Map.of("jest", List.of("node", "check.js")), null, 600, null, Map.of(),
-                Map.of("jest", Toolchain.YARN), new DevRuntimeProperties.Yarn(volume, registryUrl));
+                Map.of("jest", Toolchain.YARN), new DevRuntimeProperties.Yarn(volume, registryUrl, null), 0);
         var environment = runtime.environment("jest");
 
         Path original = Files.createDirectories(root.resolve("owner/source.git"));
@@ -113,7 +113,7 @@ class PinnedLockfileDockerTest {
         PinnedLockfile pinned;
         try (var scope = new DockerWorkloads().beginStep(executionId, "baseline");
              var baseline = scope.createTrusted(NODE_IMAGE, pristine, environment)) {
-            var result = baseline.execute(runtime.verificationCommand("jest", InstallMode.RESOLVE), 600);
+            var result = baseline.execute(runtime.verificationCommand("jest", InstallMode.RESOLVE), 600, Processes.OUTPUT_LIMIT, null);
             assertThat(result.exitCode()).as(result.diagnostics()).isZero();
             pinned = baseline.readLockfile().orElseThrow()
                     .forPackageJson(CandidateFreezer.trackedBlob(pristine, "package.json"));
@@ -125,7 +125,7 @@ class PinnedLockfileDockerTest {
         // Without the pin the same install now picks up the newer snapshot, and the check notices.
         try (var scope = new DockerWorkloads().beginStep(executionId, "control");
              var drifted = scope.createSeeded(NODE_IMAGE, pristine, environment, "verification")) {
-            var result = drifted.execute(runtime.verificationCommand("jest"), 600);
+            var result = drifted.execute(runtime.verificationCommand("jest"), 600, Processes.OUTPUT_LIMIT, null);
             assertThat(result.exitCode()).as(result.diagnostics()).isNotZero();
             assertThat(result.output()).contains("installed 1.1.0");
         }
@@ -133,9 +133,9 @@ class PinnedLockfileDockerTest {
         // With the pin seeded, Factory's verifier installs frozen against it and passes.
         var properties = new DevFactoryProperties(root.toString(), new TreeMap<>(Map.of("source",
                 new DevFactoryProperties.Repository("owner/source", "master", NODE_IMAGE, "jest", List.of("TASK"),
-                        List.of()))));
+                        List.of(), null))));
         var receipt = new CandidateVerifier(properties, runtime, new CandidateFreezer(), new DockerWorkloads())
-                .verify(executionId, "verify", candidate, Optional.of(pinned));
+                .verify(executionId, "verify", candidate, properties.sourceUrl("source"), 600, Optional.of(pinned));
 
         assertThat(receipt.result()).as(receipt.output()).isEqualTo("PASS");
         assertThat(receipt.lockfileSha256()).isEqualTo(pinned.sha256());
@@ -152,10 +152,10 @@ class PinnedLockfileDockerTest {
              var workload = scope.createSeeded(NODE_IMAGE, root, environment, "coding")) {
             workload.seedLockfile(PinnedLockfile.of("# yarn lockfile v1\n".getBytes()));
 
-            assertThat(workload.execute(List.of("sh", "-c", "echo '# changed' >> yarn.lock && head -1 yarn.lock"), 30)
+            assertThat(workload.execute(List.of("sh", "-c", "echo '# changed' >> yarn.lock && head -1 yarn.lock"), 30, Processes.OUTPUT_LIMIT, null)
                     .output()).contains("# yarn lockfile v1");
-            assertThat(workload.execute(List.of("stat", "-c", "%u", "yarn.lock"), 30).output().strip())
-                    .isEqualTo(workload.execute(List.of("id", "-u"), 30).output().strip());
+            assertThat(workload.execute(List.of("stat", "-c", "%u", "yarn.lock"), 30, Processes.OUTPUT_LIMIT, null).output().strip())
+                    .isEqualTo(workload.execute(List.of("id", "-u"), 30, Processes.OUTPUT_LIMIT, null).output().strip());
         }
     }
 
@@ -166,7 +166,7 @@ class PinnedLockfileDockerTest {
              var workload = scope.createSeeded(NODE_IMAGE, root, environment, "verification")) {
             assertThat(workload.readLockfile()).isEmpty();
 
-            workload.execute(List.of("ln", "-s", "/etc/passwd", "yarn.lock"), 30);
+            workload.execute(List.of("ln", "-s", "/etc/passwd", "yarn.lock"), 30, Processes.OUTPUT_LIMIT, null);
 
             org.assertj.core.api.Assertions.assertThatThrownBy(workload::readLockfile)
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("not a regular file");
@@ -175,18 +175,18 @@ class PinnedLockfileDockerTest {
 
     private String startRegistry(List<String> versions) throws Exception {
         Path script = Files.writeString(root.resolve("registry.js"), REGISTRY_SCRIPT);
-        Processes.run(null, List.of("docker", "create", "--name", registry, NODE_IMAGE, "node", "/srv/registry.js"), 120)
+        Processes.run(null, List.of("docker", "create", "--name", registry, NODE_IMAGE, "node", "/srv/registry.js"), 120, Map.of(), Processes.OUTPUT_LIMIT, null)
                 .requireSuccess();
-        Processes.run(null, List.of("docker", "cp", script.toString(), registry + ":/srv/registry.js"), 30).requireSuccess();
+        Processes.run(null, List.of("docker", "cp", script.toString(), registry + ":/srv/registry.js"), 30, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess();
         publish(versions);
-        Processes.run(null, List.of("docker", "start", registry), 60).requireSuccess();
+        Processes.run(null, List.of("docker", "start", registry), 60, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess();
         String ip = Processes.run(null, List.of("docker", "inspect", "-f",
-                "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", registry), 30).requireSuccess().output().strip();
+                "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", registry), 30, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess().output().strip();
         assertThat(ip).matches("[0-9.]+");
         for (int attempt = 0; attempt < 40; attempt++) {
             var probe = Processes.run(null, List.of("docker", "exec", registry, "node", "-e",
                     "require('http').get('http://127.0.0.1:4873/@folio%2Fpinned-fixture',"
-                            + "r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"), 30);
+                            + "r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
             if (probe.exitCode() == 0) return "http://" + ip + ":4873/";
             Thread.sleep(500);
         }
@@ -196,6 +196,6 @@ class PinnedLockfileDockerTest {
     private void publish(List<String> versions) throws Exception {
         Path file = Files.writeString(root.resolve("versions.json"),
                 "[" + String.join(",", versions.stream().map(v -> "\"" + v + "\"").toList()) + "]");
-        Processes.run(null, List.of("docker", "cp", file.toString(), registry + ":/srv/versions.json"), 30).requireSuccess();
+        Processes.run(null, List.of("docker", "cp", file.toString(), registry + ":/srv/versions.json"), 30, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess();
     }
 }

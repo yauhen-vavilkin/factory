@@ -1,5 +1,8 @@
 package org.folio.factory.devfactory.runtime;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.List;
 
 /** Factory-owned, runtime-neutral description of one authorized coding attempt. */
@@ -13,15 +16,8 @@ public record CodingRequest(
         List<ConfirmedDecision> confirmedDecisions,
         RepositoryTarget repository,
         Constraints constraints,
+        RunSettings runSettings,
         List<Attachment> attachments) {
-
-    public CodingRequest(String issueKey, String summary, String description, List<Comment> comments,
-                         List<LinkedIssue> linkedIssues, List<String> acceptanceCriteria,
-                         List<ConfirmedDecision> confirmedDecisions, RepositoryTarget repository,
-                         Constraints constraints) {
-        this(issueKey, summary, description, comments, linkedIssues, acceptanceCriteria, confirmedDecisions,
-                repository, constraints, List.of());
-    }
 
     // Requests stored before attachments existed have no such field, so a missing list reads as empty.
     public CodingRequest {
@@ -41,25 +37,21 @@ public record CodingRequest(
         var decisions = new java.util.ArrayList<>(confirmedDecisions);
         decisions.add(decision);
         return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
-                acceptanceCriteria, decisions, repository, constraints, attachments);
+                acceptanceCriteria, decisions, repository, constraints, runSettings, attachments);
     }
 
     /** Tells the agent how Factory will verify the work and whether the workspace is already prepared. */
     public CodingRequest withVerification(String command, boolean dependenciesInstalled) {
-        var c = constraints;
         return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
                 acceptanceCriteria, confirmedDecisions, repository,
-                new Constraints(c.workingDirectory(), c.allowRepositorySwitch(), c.allowPush(),
-                        c.allowExternalWrites(), c.allowGitMetadataChanges(), c.independentVerification(),
-                        command, dependenciesInstalled), attachments);
+                constraints.withVerification(command, dependenciesInstalled), runSettings, attachments);
     }
 
     /** The same request with the attachments resolved for this attempt (staged files or reasons they were not). */
     public CodingRequest withAttachments(List<Attachment> resolved) {
         return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
-                acceptanceCriteria, confirmedDecisions, repository, constraints, resolved);
+                acceptanceCriteria, confirmedDecisions, repository, constraints, runSettings, resolved);
     }
-
 
     public void requireReady() {
         if (issueKey.isBlank() || summary.isBlank() || repository == null
@@ -92,9 +84,15 @@ public record CodingRequest(
         public Attachment {
             id = text(id); filename = text(filename); mimeType = text(mimeType); path = text(path); note = text(note);
         }
+
         /** {@code bytes} is the size of the file actually staged, which can differ from what Jira reported. */
-        public Attachment staged(String path, long bytes) { return new Attachment(id, filename, mimeType, bytes, path, ""); }
-        public Attachment skipped(String note) { return new Attachment(id, filename, mimeType, size, "", note); }
+        public Attachment staged(String path, long bytes) {
+            return new Attachment(id, filename, mimeType, bytes, path, "");
+        }
+
+        public Attachment skipped(String note) {
+            return new Attachment(id, filename, mimeType, size, "", note);
+        }
     }
 
     public record ConfirmedDecision(String requestId, String kind, String question, String answer) {
@@ -109,6 +107,20 @@ public record CodingRequest(
         }
     }
 
+    /**
+     * What the person chose for this run: the model from config/developer-models.yaml, its effort and extra
+     * instructions. A null field means the default; a request without settings uses the default model. It never
+     * holds a secret. Requests stored before 2026-11-03 name the model "profileId" and also hold maxTurns, which
+     * is now a limit in .env; the JSON name stays so that open pull requests still get their feedback runs.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RunSettings(@JsonProperty("profileId") String modelId, String effort, String instructions) {
+    }
+
+    /**
+     * {@code verificationCommand} and {@code dependenciesInstalled} tell the agent how Factory checks the work.
+     * The flag is boxed so that requests stored before these fields existed still parse.
+     */
     public record Constraints(String workingDirectory, boolean allowRepositorySwitch, boolean allowPush,
                               boolean allowExternalWrites, boolean allowGitMetadataChanges,
                               boolean independentVerification, String verificationCommand,
@@ -119,13 +131,19 @@ public record CodingRequest(
             this(workingDirectory, allowRepositorySwitch, allowPush, allowExternalWrites,
                     allowGitMetadataChanges, independentVerification, "", false);
         }
-        // Boxed so that requests stored before these fields existed still parse (Jackson rejects a missing primitive).
+
         public Constraints {
             verificationCommand = text(verificationCommand);
             dependenciesInstalled = Boolean.TRUE.equals(dependenciesInstalled);
         }
+
         public static Constraints defaults() {
             return new Constraints("/workspace", false, false, false, false, true);
+        }
+
+        Constraints withVerification(String command, boolean installed) {
+            return new Constraints(workingDirectory, allowRepositorySwitch, allowPush, allowExternalWrites,
+                    allowGitMetadataChanges, independentVerification, command, installed);
         }
     }
 }

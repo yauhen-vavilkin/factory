@@ -1,7 +1,6 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
-import org.folio.factory.agents.prompt.PromptCatalog;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
@@ -65,15 +64,12 @@ class FlowUiControllerTest {
     @Mock
     private AgentWorkerRegistry workers;
 
-    @Mock
-    private PromptCatalog promptCatalog;
-
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders
-                .standaloneSetup(new FlowUiController(flowRegistry, mirror, router, workers, promptCatalog, json))
+                .standaloneSetup(new FlowUiController(flowRegistry, mirror, router, workers, json))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -99,8 +95,9 @@ class FlowUiControllerTest {
                 .containsEntry("version", "1.0.0")
                 .containsEntry("stepCount", 3)
                 .containsEntry("gateCount", 1);
-        assertThat((List<String>) rows.get(0).get("eventTypes"))
-                .containsExactly("manual", "jira.issue.transitioned");
+        // The triggers in the words of the Definition tab, not their event ids.
+        assertThat((List<String>) rows.get(0).get("triggers"))
+                .containsExactly("Manual start", "Jira: issue transitioned");
     }
 
     // ----- flow detail -----
@@ -119,31 +116,23 @@ class FlowUiControllerTest {
 
         Map<String, Object> model = (Map<String, Object>) (Map<?, ?>) result.getModelAndView().getModel();
 
-        List<Map<String, Object>> steps = (List<Map<String, Object>>) model.get("steps");
-        assertThat(steps).hasSize(3);
-        assertThat(steps.get(0))
-                .containsEntry("type", "AGENT")
-                .containsEntry("label", "triage-agent")
-                .containsEntry("sublabel", "triage · AGENT")
-                .containsEntry("state", "pending")
-                .containsEntry("workerId", "triage-agent");
-        assertThat(steps.get(1))
-                .containsEntry("type", "HITL_GATE")
-                .containsEntry("label", "QA gate");
-        assertThat((Map<String, Object>) steps.get(1).get("gate")).containsEntry("gateId", "g1");
-        assertThat(steps.get(2))
-                .containsEntry("type", "SUB_FLOW")
-                .containsEntry("label", "Sub-flow: child-flow");
-
-        List<Map<String, Object>> triggers = (List<Map<String, Object>>) model.get("triggers");
-        assertThat(triggers).hasSize(2);
-        assertThat(triggers.get(1))
-                .containsEntry("eventType", "jira.issue.transitioned");
-        assertThat((Map<String, String>) triggers.get(1).get("filters"))
-                .containsEntry("/issue/fields/status/name", "Ready for QA");
-
-        Map<String, Object> retry = (Map<String, Object>) model.get("retryPolicy");
-        assertThat(retry).containsEntry("maxAttempts", 3);
+        var definition = (FlowDefinitionView) model.get("definition");
+        assertThat(definition.steps()).containsExactly(
+                // A known config key in words, any other as it is in the descriptor.
+                new FlowDefinitionView.Step(1, "Triage", "Worker triage-agent, framework: karate, can pause and go on"
+                        + " where it stopped", null, null, "the trigger payload → scope_manifest.md", null),
+                new FlowDefinitionView.Step(2, "QA gate", "Human review", null, null, "Reviews test_plan.md",
+                        "review it"),
+                new FlowDefinitionView.Step(3, "Sub", "Sub-flow, runs", "child-flow", "/flows/child-flow",
+                        "Passes test_plan.md as plan.md; gets back out.md as up.md", null));
+        // The router needs the required inputs of the flow in every payload, so each trigger names them.
+        assertThat(definition.triggers()).containsExactly(
+                new FlowDefinitionView.Trigger("Manual start", "Needs issueKey"),
+                new FlowDefinitionView.Trigger("Jira: issue transitioned",
+                        "When /issue/fields/status/name is Ready for QA; needs issueKey"));
+        // Three tries in all: the engine retries after 30 s and 2 min, so the third wait of the policy is unused.
+        assertThat(definition.retries()).isEqualTo("Step retries: up to 2, waiting 30 s, then 2 min."
+                + " After 3 failures of one step, the run waits for a decision in Reviews.");
 
         // Real classpath samples for test-factory are discovered and payload-extracted.
         List<Map<String, Object>> samples = (List<Map<String, Object>>) model.get("samples");
@@ -153,7 +142,29 @@ class FlowUiControllerTest {
         assertThat(String.valueOf(model.get("defaultPayload"))).contains("issueKey");
     }
 
+    @Test
+    void retryLineCountsTheTriesTheEngineMakes() {
+        assertThat(FlowDefinitionView.retries(new RetryPolicy(1, List.of(30L))))
+                .isEqualTo("Step retries: none. After 1 failure of one step, the run waits for a decision in Reviews.");
+        // A policy with fewer waits than retries reuses its last wait.
+        assertThat(FlowDefinitionView.retries(new RetryPolicy(4, List.of(10L, 90L))))
+                .startsWith("Step retries: up to 3, waiting 10 s, 1 min, then 1 min.");
+        assertThat(FlowDefinitionView.retries(new RetryPolicy(2, List.of(30L, 120L))))
+                .startsWith("Step retries: up to 1, waiting 30 s.");
+    }
+
     // ----- trigger POST -----
+
+    /** A page on another site must not start a paid run. */
+    @Test
+    void trigger_crossSitePostIsRefusedBeforeTheRouter() throws Exception {
+        mvc.perform(post("/flows/{id}/trigger", "test-factory")
+                        .param("payload", "{\"issueKey\":\"ERM-1\"}")
+                        .header("Origin", "https://evil.example"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(router);
+    }
 
     @Test
     void trigger_validPayload_routesAndRedirectsToExecution() throws Exception {
@@ -170,7 +181,7 @@ class FlowUiControllerTest {
     }
 
     @Test
-    void trigger_passesDedupKeyBlankAsNull() throws Exception {
+    void trigger_trimsTheDedupKey() throws Exception {
         when(router.routeManual(eq("test-factory"), any(JsonNode.class), eq("k1")))
                 .thenReturn(UUID.randomUUID());
 
@@ -226,6 +237,17 @@ class FlowUiControllerTest {
                         .contains("issueKey"));
     }
 
+    @Test
+    void trigger_developerFlowIsRefusedAndSendsTheDeveloperToMyTasks() throws Exception {
+        mvc.perform(post("/flows/{id}/trigger", "dev-factory")
+                        .param("payload", "{\"issueKey\": \"MODBAR-1\"}"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/flows/dev-factory?error=Developer+Flow+runs+start+from+My+tasks%3A"
+                        + "+select+your+tasks+or+add+one+by+key."));
+
+        verifyNoInteractions(router);
+    }
+
     // ----- workers -----
 
     @Test
@@ -235,8 +257,6 @@ class FlowUiControllerTest {
         AgentWorker plain = new PlainTestWorker();
         when(workers.all()).thenReturn(Map.of("triage-agent", llm, "finalizer", plain));
         when(flowRegistry.all()).thenReturn(List.of(descriptor()));
-        when(promptCatalog.promptsFor("triage-agent")).thenReturn(List.of("system", "user"));
-        when(promptCatalog.promptsFor("finalizer")).thenReturn(List.of());
 
         var result = mvc.perform(get("/workers"))
                 .andExpect(status().isOk())
@@ -257,17 +277,18 @@ class FlowUiControllerTest {
                 .containsEntry("id", "triage-agent")
                 .containsEntry("className", "LlmTestWorker")
                 .containsEntry("llm", true);
-        assertThat((List<String>) rows.get(1).get("prompts")).containsExactly("system", "user");
         List<Map<String, Object>> usedBy = (List<Map<String, Object>>) rows.get(1).get("usedBy");
         assertThat(usedBy).hasSize(1);
-        assertThat(usedBy.get(0)).containsEntry("flowId", "test-factory").containsEntry("stepId", "triage");
+        assertThat(usedBy.get(0)).containsEntry("flowId", "test-factory").containsEntry("stepId", "triage")
+                .containsEntry("url", "/flows/test-factory");
     }
 
     // ----- helpers -----
 
     private static FlowDescriptor descriptor() {
         StepDescriptor agent = new StepDescriptor("triage", StepType.AGENT, "triage-agent",
-                null, null, List.of("$trigger"), List.of("scope_manifest.md"), Map.of("framework", "karate"));
+                null, null, List.of("$trigger"), List.of("scope_manifest.md"),
+                Map.of("framework", "karate", "resumable", true));
         StepDescriptor gate = new StepDescriptor("qa-gate", StepType.HITL_GATE, null,
                 new HitlGateSpec("g1", "QA gate", "review it", List.of("test_plan.md")), null, null, null, null);
         StepDescriptor sub = new StepDescriptor("sub", StepType.SUB_FLOW, null, null,
@@ -276,7 +297,9 @@ class FlowUiControllerTest {
         List<TriggerContract> triggers = List.of(
                 new TriggerContract("manual", Map.of()),
                 new TriggerContract("jira.issue.transitioned", Map.of("/issue/fields/status/name", "Ready for QA")));
-        return new FlowDescriptor("test-factory", "Test Factory", "1.0.0", triggers, null, null,
+        var inputs = tools.jackson.databind.json.JsonMapper.builder().build()
+                .readTree("{\"required\":[\"issueKey\"]}");
+        return new FlowDescriptor("test-factory", "Test Factory", "1.0.0", triggers, inputs, null,
                 List.of(agent, gate, sub), RetryPolicy.DEFAULT);
     }
 

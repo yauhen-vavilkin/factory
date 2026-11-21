@@ -58,7 +58,8 @@ growing. Two consequences:
 
 Restores that have never been tested are not backups. Schedule a **quarterly** drill:
 
-1. Provision a scratch Postgres (`docker compose up -d` works for a functional drill).
+1. Provision a scratch Postgres (`docker compose up -d postgres` works for a functional
+   drill; plain `up -d` also starts Factory, which runs Flyway on the empty DB first).
 2. Restore the latest dump: `scripts/pg-backup.sh` documents the matching
    `pg_restore`/`psql` invocation; for PITR, restore a base backup + replay WAL to a
    chosen timestamp.

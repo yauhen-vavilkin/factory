@@ -1,57 +1,157 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Shared formatting and request-parsing helpers for the server-rendered views.
  * All methods are pure so the controllers stay thin and consistent.
  */
-final class UiFormat {
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+public final class UiFormat {
 
-    private static final DateTimeFormatter TIMESTAMP =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
+    /** {@code money(ZERO, "USD")}: the cost of work that has reported no usage yet. */
+    public static final String ZERO_COST = "$0.00";
+    /** Beside the cost of work that runs now. */
+    public static final String SO_FAR = "so far";
+    /** In place of a cost figure when usage has no price or was not reported. */
+    public static final String COST_UNKNOWN = "cost unknown";
+    /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
+    static final int MAX_REDIRECT_MESSAGE = 300;
+    private static final BigDecimal CENT = new BigDecimal("0.01");
+    private static final Set<String> ACRONYMS = Set.of("pr", "qa", "api", "hitl");
 
-    private UiFormat() {
+    static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
-    /** Formats an instant as {@code yyyy-MM-dd HH:mm:ss} UTC, or {@code null} when the instant is null. */
-    static String format(Instant instant) {
-        return instant == null ? null : TIMESTAMP.format(instant);
+    /** The parts that are not null, joined with " · ". */
+    public static String joinNonNull(String... parts) {
+        return Stream.of(parts).filter(Objects::nonNull).collect(Collectors.joining(" · "));
     }
 
     static String abbreviate(String value) {
         return value.length() <= 13 ? value : value.substring(0, 10) + "...";
     }
 
+    /**
+     * One cost format for every page: {@code $0.70} for USD, {@code 0.70 EUR} for other currencies. An amount above
+     * zero and under one cent is {@code <$0.01}, so a run that cost something never reads as free.
+     */
+    public static String money(BigDecimal amount, String currency) {
+        var text = underOneCent(amount) ? "<0.01" : amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
+        if (!"USD".equals(currency)) {
+            return text + " " + currency;
+        }
+        return text.startsWith("<") ? "<$0.01" : "$" + text;
+    }
+
+    /** Costs in several currencies joined with " + "; null when there is no cost. */
+    public static String money(Map<String, BigDecimal> amountsByCurrency) {
+        if (amountsByCurrency.isEmpty()) {
+            return null;
+        }
+        return amountsByCurrency.entrySet().stream()
+                .map(entry -> money(entry.getValue(), entry.getKey()))
+                .collect(Collectors.joining(" + "));
+    }
+
+    /**
+     * The amount a part adds to a total, so a total is the sum of the amounts its parts show: the amount in cents,
+     * or the exact amount of a part that shows {@code <$0.01}.
+     */
+    public static BigDecimal shownAmount(BigDecimal amount) {
+        return underOneCent(amount) ? amount : amount.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static boolean underOneCent(BigDecimal amount) {
+        return amount.signum() > 0 && amount.compareTo(CENT) < 0;
+    }
+
     /** Groups a count with thousands separators — token totals reach seven figures. */
-    static String count(long value) {
+    public static String count(long value) {
         return NumberFormat.getIntegerInstance(Locale.US).format(value);
     }
 
-    /** Compact elapsed time for live UI clocks: seconds, then minutes, then hours. */
-    static String duration(long seconds) {
+    /**
+     * "9 s", "5 min", "1 h 20 min", "5 d 5 h": the words the run page uses, and poll.js ticks in, for a time span.
+     * From one day up the minutes are left out.
+     */
+    public static String duration(long seconds) {
         long safe = Math.max(0, seconds);
-        if (safe < 60) return safe + "s";
+        if (safe < 60) {
+            return safe + " s";
+        }
         long minutes = safe / 60;
-        long remainingSeconds = safe % 60;
-        if (minutes < 60) return minutes + "m" + (remainingSeconds == 0 ? "" : " " + remainingSeconds + "s");
+        if (minutes < 60) {
+            return minutes + " min";
+        }
         long hours = minutes / 60;
+        if (hours >= 24) {
+            return hours / 24 + " d" + (hours % 24 == 0 ? "" : " " + hours % 24 + " h");
+        }
         long remainingMinutes = minutes % 60;
-        return hours + "h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + "m");
+        return hours + " h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + " min");
+    }
+
+    /** Milliseconds under one second, the compact duration from one second up. */
+    static String milliseconds(long value) {
+        return value < 1000 ? value + " ms" : duration(value / 1000);
+    }
+
+    /** Lenient read of stored JSON text: null or unreadable text yields an empty object. */
+    static JsonNode parse(String value, JsonMapper jsonMapper) {
+        try {
+            return value == null ? jsonMapper.createObjectNode() : jsonMapper.readTree(value);
+        } catch (RuntimeException ignored) {
+            return jsonMapper.createObjectNode();
+        }
+    }
+
+    /** The Definition of a flow: the Developer Flow page opens on My tasks, so it needs its Definition tab. */
+    static String flowDefinitionUrl(String flowId) {
+        return DevFactoryConfiguration.FLOW_ID.equals(flowId) ? "/flows/" + flowId + "?view=definition"
+                : "/flows/" + flowId;
+    }
+
+    /** The name a page shows for a flow: its registered name, or the id of a flow that is no longer registered. */
+    public static String flowName(FlowRegistry flows, String flowId) {
+        return flows.find(flowId).map(FlowDescriptor::name).orElse(flowId);
+    }
+
+    /** A step or gate id in words, as the Definition tab names a step: "read-task" → "Read task". */
+    public static String inWords(String id) {
+        var words = Arrays.stream(id.split("[-_]+"))
+                .map(word -> ACRONYMS.contains(word) ? word.toUpperCase(Locale.ROOT) : word).toList();
+        var text = String.join(" ", words);
+        return text.isEmpty() ? id : Character.toUpperCase(text.charAt(0)) + text.substring(1);
+    }
+
+    /** An engine step as the run page names its card ("publish" → "Create pull request"), else its id in words. */
+    public static String stepInWords(String stepId) {
+        return RunSteps.label(stepId).orElseGet(() -> inWords(stepId));
     }
 
     static String stepLabel(StepDescriptor step) {
@@ -79,14 +179,17 @@ final class UiFormat {
     }
 
     static String errorRedirect(String path, String message) {
-        return "redirect:" + path + "?error=" + encode(message == null ? "Request failed" : message);
+        String text = message == null ? "Request failed" : message.strip();
+        if (text.length() > MAX_REDIRECT_MESSAGE) {
+            text = text.substring(0, MAX_REDIRECT_MESSAGE - 1) + "…";
+        }
+        return "redirect:" + path + "?error=" + encode(text);
     }
 
     /** The one row shape the {@code auditTable} fragment renders, wherever it appears. */
     static Map<String, Object> auditRow(AuditEvent event, JsonMapper jsonMapper) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("occurredAt", format(event.getOccurredAt()));
-        row.put("eventType", event.getEventType().name());
+        row.put("occurredAt", PageTime.timestamp(event.getOccurredAt()));
         row.put("eventLabel", eventLabel(event.getEventType()));
         row.put("eventTone", eventTone(event.getEventType()));
         row.put("stepId", event.getStepId());

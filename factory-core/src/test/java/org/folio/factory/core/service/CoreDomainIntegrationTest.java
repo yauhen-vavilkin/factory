@@ -48,8 +48,8 @@ class CoreDomainIntegrationTest {
         assertThat(v2.getId()).isNotEqualTo(v1.getId());
         assertThat(artifactStore.getLatest(execution.getId(), "test_plan.md"))
                 .hasValueSatisfying(a -> assertThat(a.getContent()).isEqualTo("amended draft"));
-        assertThat(artifactStore.get(execution.getId(), "test_plan.md", 1))
-                .hasValueSatisfying(a -> assertThat(a.getContent()).isEqualTo("first draft"));
+        assertThat(artifactStore.allForExecution(execution.getId()))
+                .extracting(Artifact::getContent).containsExactly("first draft", "amended draft");
         assertThat(v1.getSha256()).hasSize(64).isNotEqualTo(v2.getSha256());
     }
 

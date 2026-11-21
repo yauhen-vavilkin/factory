@@ -1,7 +1,9 @@
 package org.folio.factory.app.web;
 
+import jakarta.servlet.http.HttpServletRequest;
+
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
-import org.folio.factory.agents.prompt.PromptCatalog;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.agent.AgentWorkerRegistry;
 import org.folio.factory.core.domain.FlowRegistryEntry;
@@ -9,9 +11,6 @@ import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
-import org.folio.factory.core.registry.model.HitlGateSpec;
-import org.folio.factory.core.registry.model.StepDescriptor;
-import org.folio.factory.core.registry.model.SubFlowSpec;
 import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
 import org.folio.factory.core.trigger.PipelineRouter;
@@ -37,6 +36,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
+
+import static org.folio.factory.app.web.TaskUiController.requireSameOrigin;
 
 /**
  * Server-rendered flow catalog and worker library. The flow list/detail views and
@@ -46,6 +48,7 @@ import java.util.UUID;
  * {@link PipelineRouter} the REST trigger API uses.
  */
 @Controller
+@RequiredArgsConstructor
 public class FlowUiController {
 
     private static final String SAMPLES_PATTERN = "classpath:samples/*.json";
@@ -54,20 +57,9 @@ public class FlowUiController {
     private final FlowRegistryEntryRepository mirror;
     private final PipelineRouter router;
     private final AgentWorkerRegistry workers;
-    private final PromptCatalog promptCatalog;
     private final JsonMapper jsonMapper;
     private final PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
     private volatile Map<String, List<Map<String, Object>>> samplesByFlow;
-
-    public FlowUiController(FlowRegistry flowRegistry, FlowRegistryEntryRepository mirror, PipelineRouter router,
-                            AgentWorkerRegistry workers, PromptCatalog promptCatalog, JsonMapper jsonMapper) {
-        this.flowRegistry = flowRegistry;
-        this.mirror = mirror;
-        this.router = router;
-        this.workers = workers;
-        this.promptCatalog = promptCatalog;
-        this.jsonMapper = jsonMapper;
-    }
 
     @GetMapping("/flows")
     public String flows(Model model) {
@@ -88,12 +80,11 @@ public class FlowUiController {
 
         List<Map<String, Object>> samples = samplesFor(descriptor.id());
         model.addAttribute("flow", header);
-        model.addAttribute("steps", stepRows(descriptor));
-        model.addAttribute("triggers", triggerRows(descriptor));
-        model.addAttribute("retryPolicy", retryPolicyRow(descriptor));
+        model.addAttribute("definition", FlowDefinitionView.of(descriptor));
         model.addAttribute("rawYaml", rawYaml(descriptor));
         model.addAttribute("samples", samples);
         model.addAttribute("defaultPayload", samples.isEmpty() ? "{}" : samples.get(0).get("prettyJson"));
+        model.addAttribute("myTasksTab", DevFactoryConfiguration.FLOW_ID.equals(descriptor.id()));
         model.addAttribute("error", error);
         return "flow";
     }
@@ -102,7 +93,12 @@ public class FlowUiController {
     public String trigger(@PathVariable("id") String id,
                           @RequestParam(name = "payload", required = false) String payload,
                           @RequestParam(name = "dedupKey", required = false) String dedupKey,
-                          RedirectAttributes redirect) {
+                          HttpServletRequest request, RedirectAttributes redirect) {
+        requireSameOrigin(request);
+        if (DevFactoryConfiguration.FLOW_ID.equals(id)) {
+            return UiFormat.errorRedirect("/flows/" + id,
+                    "Developer Flow runs start from My tasks: select your tasks or add one by key.");
+        }
         JsonNode payloadNode;
         try {
             String body = payload == null || payload.isBlank() ? "{}" : payload;
@@ -129,78 +125,17 @@ public class FlowUiController {
         return "workers";
     }
 
+    /** A flow card; its triggers are said in the words of the Definition tab ("Manual start"). */
     private Map<String, Object> flowSummaryRow(FlowDescriptor descriptor) {
-        List<String> eventTypes = descriptor.triggers().stream()
-                .map(TriggerContract::eventType).distinct().toList();
+        List<String> triggers = descriptor.triggers().stream()
+                .map(TriggerContract::eventType).distinct().map(FlowDefinitionView::event).toList();
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", descriptor.id());
         row.put("name", descriptor.name());
         row.put("version", descriptor.version());
         row.put("stepCount", descriptor.agentChain().size());
         row.put("gateCount", descriptor.gateCount());
-        row.put("eventTypes", eventTypes);
-        return row;
-    }
-
-    private List<Map<String, Object>> stepRows(FlowDescriptor descriptor) {
-        List<StepDescriptor> chain = descriptor.agentChain();
-        List<Map<String, Object>> rows = new ArrayList<>(chain.size());
-        for (int i = 0; i < chain.size(); i++) {
-            StepDescriptor step = chain.get(i);
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("index", i);
-            row.put("stepId", step.stepId());
-            row.put("type", step.type().name());
-            row.put("label", UiFormat.stepLabel(step));
-            row.put("sublabel", step.stepId() + " · " + step.type());
-            row.put("state", "pending");
-            switch (step.type()) {
-                case AGENT -> {
-                    row.put("workerId", step.workerId());
-                    row.put("inputs", step.inputs());
-                    row.put("outputs", step.outputs());
-                    row.put("config", step.config());
-                }
-                case HITL_GATE -> row.put("gate", gateRow(step.gate()));
-                case SUB_FLOW -> row.put("subFlow", subFlowRow(step.subFlow()));
-            }
-            rows.add(row);
-        }
-        return rows;
-    }
-
-    private static Map<String, Object> gateRow(HitlGateSpec gate) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("gateId", gate.gateId());
-        row.put("title", gate.title());
-        row.put("reviewInstructions", gate.reviewInstructions());
-        row.put("reviewedArtifacts", gate.reviewedArtifacts());
-        return row;
-    }
-
-    private static Map<String, Object> subFlowRow(SubFlowSpec subFlow) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("flowId", subFlow.flowId());
-        row.put("inputMapping", subFlow.inputMapping());
-        row.put("outputMapping", subFlow.outputMapping());
-        return row;
-    }
-
-    private List<Map<String, Object>> triggerRows(FlowDescriptor descriptor) {
-        List<Map<String, Object>> rows = new ArrayList<>();
-        for (TriggerContract trigger : descriptor.triggers()) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("eventType", trigger.eventType());
-            row.put("filters", trigger.filters());
-            rows.add(row);
-        }
-        return rows;
-    }
-
-    private static Map<String, Object> retryPolicyRow(FlowDescriptor descriptor) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("maxAttempts", descriptor.retryPolicy().maxAttempts());
-        row.put("backoffSeconds", descriptor.retryPolicy().backoffSeconds());
+        row.put("triggers", triggers);
         return row;
     }
 
@@ -234,17 +169,22 @@ public class FlowUiController {
             } catch (IOException | JacksonException unreadable) {
                 continue;
             }
-            JsonNode payload = root.path("payload");
-            JsonNode content = payload.isMissingNode() ? jsonMapper.createObjectNode() : payload;
-            Map<String, Object> sample = new LinkedHashMap<>();
-            sample.put("name", sampleName(resource.getFilename()));
-            sample.put("prettyJson", escapeScriptClosers(
-                    jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content)));
+            Map<String, Object> sample = sample(resource, root);
             byFlow.computeIfAbsent(root.path("flowId").asString(""), k -> new ArrayList<>()).add(sample);
         }
         byFlow.values().forEach(samples ->
                 samples.sort(Comparator.comparing(sample -> String.valueOf(sample.get("name")))));
         return byFlow;
+    }
+
+    private Map<String, Object> sample(Resource resource, JsonNode root) {
+        JsonNode payload = root.path("payload");
+        JsonNode content = payload.isMissingNode() ? jsonMapper.createObjectNode() : payload;
+        Map<String, Object> sample = new LinkedHashMap<>();
+        sample.put("name", sampleName(resource.getFilename()));
+        sample.put("prettyJson", escapeScriptClosers(
+                jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content)));
+        return sample;
     }
 
     /**
@@ -266,13 +206,13 @@ public class FlowUiController {
 
     private Map<String, Object> workerRow(AgentWorker worker) {
         List<Map<String, Object>> usedBy = WorkerController.usedBy(worker.id(), flowRegistry).stream()
-                .map(ref -> Map.<String, Object>of("flowId", ref.flowId(), "stepId", ref.stepId()))
+                .map(ref -> Map.<String, Object>of("flowId", ref.flowId(), "stepId", ref.stepId(),
+                        "url", UiFormat.flowDefinitionUrl(ref.flowId())))
                 .toList();
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", worker.id());
         row.put("className", worker.getClass().getSimpleName());
         row.put("llm", worker instanceof AbstractLlmAgentWorker);
-        row.put("prompts", promptCatalog.promptsFor(worker.id()));
         row.put("usedBy", usedBy);
         return row;
     }

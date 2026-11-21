@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title=${flow['name']}, activeNav='flows', content=~{:: .dev-page}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<div class="dev-page"
+     th:attr="data-poll-url=${pollUrl}, data-poll-fields=${pollFields}, data-poll-baseline=${pollBaseline}">
+    <th:block th:replace="~{fragments/developer-flow :: header(${flow}, 'tasks')}"></th:block>
+
+    <div class="progress-strip" role="status" th:if="${inProgress != null}">
+        <div class="progress-strip-line">
+            <span class="progress-strip-state">In progress</span>
+            <a class="key-link ext-link" th:href="${inProgress.jiraUrl()}" th:text="${inProgress.key()}">KEY-1</a>
+            <span class="progress-strip-title" th:title="${inProgress.title()}" th:text="${inProgress.title()}">Title</span>
+            <span class="progress-strip-run" th:text="${inProgress.run()}">model · effort · 5 min</span>
+        </div>
+        <a class="btn btn-secondary btn-sm btn-col" th:href="${inProgress.runUrl()}">Open run</a>
+    </div>
+
+    <section class="dev-list dev-list-inset task-list" aria-labelledby="available-title">
+        <div class="dev-list-head">
+            <h2 class="dev-section-title" id="available-title">Ready to run <span class="dev-count"
+                    th:text="${#lists.size(available)}">0</span> <span class="src src-jira">From Jira</span></h2>
+            <div class="dev-list-tools">
+                <span data-poll-notice hidden>Tasks changed; reload to see them.</span>
+                <form class="add-key" method="post" th:action="@{/flows/dev-factory/add-by-key}">
+                    <input class="input input-sm add-key-input" id="add-key" name="key" type="text"
+                           aria-label="Add a task by key" placeholder="Add by key, for example MGRAPPS-101"
+                           required autocomplete="off">
+                    <button type="submit" class="btn btn-secondary btn-sm">Add</button>
+                </form>
+                <form method="post" th:action="@{/flows/dev-factory/scan}">
+                    <button type="submit" class="btn btn-secondary btn-sm btn-col"
+                            th:title="${source.scanTitle()}">Scan Jira</button>
+                </form>
+            </div>
+        </div>
+        <p class="dev-problem" th:if="${source.assignee() == null}">Set <code>FACTORY_TASKS_ASSIGNEE</code> in
+            <code>.env</code> to your name as shown in Jira, then <code>docker compose up -d</code>.</p>
+        <p class="dev-problem" th:if="${source.problem() != null}"
+           th:text="'Last scan failed: ' + ${source.problem()}"></p>
+
+        <form method="post" th:action="@{/tasks/run-selected}" data-selection="taskId">
+            <div class="dev-row" th:each="row : ${available}">
+                <input type="checkbox" class="task-check" name="taskId" th:value="${row.taskId()}"
+                       th:id="'select-' + ${row.taskId()}" th:attr="aria-label='Select ' + ${row.key()}">
+                <input type="hidden" th:name="'version-' + ${row.taskId()}" th:value="${row.version()}">
+                <input type="hidden" th:name="'input-' + ${row.taskId()}" th:value="${row.inputFingerprint()}">
+                <input type="hidden" th:name="'destination-' + ${row.taskId()}"
+                       th:value="${row.destinationFingerprint()}">
+                <label class="dev-row-main dev-row-select" th:for="'select-' + ${row.taskId()}">
+                    <span class="dev-row-name" th:title="${row.title()}" th:text="${row.title()}">Title</span>
+                    <span class="dev-row-meta" th:title="${row.metaTitle()}"
+                        ><a class="key-link ext-link" th:href="${row.jiraUrl()}" th:text="${row.key()}">KEY-1</a><span
+                            class="badge badge-sm badge-muted"><span class="sr-only">Status in Jira: </span><span
+                            th:text="${row.jiraStatus()}">Open</span></span><span
+                            th:if="${row.repository() != null}" th:text="${row.repository()}">repository</span></span>
+                </label>
+                <div class="row-cluster row-cluster-ready">
+                    <div class="dev-row-action" th:if="${row.addedByKey()}">
+                        <button type="submit" class="btn btn-secondary btn-sm"
+                                th:formaction="@{'/tasks/' + ${row.taskId()} + '/remove-from-list'}" formnovalidate
+                                th:attr="aria-label='Remove from list: ' + ${row.key()}">Remove from list</button>
+                    </div>
+                    <div class="run-setting" th:if="${runForm != null and runForm.selected() != null}"
+                         th:title="${runForm.effortHint()}">
+                        <th:block th:insert="~{fragments/developer-flow :: effortChoice(${runForm.selected()},
+                                ${runForm.selected().defaultEffort()}, 'effort-' + ${row.taskId()},
+                                'Effort for ' + ${row.key()}, true)}"></th:block>
+                    </div>
+                </div>
+            </div>
+            <p class="dev-empty" th:if="${#lists.isEmpty(available)}"
+               th:text="${source.emptyText()}">No tasks.</p>
+
+            <div class="dev-list-foot" th:unless="${#lists.isEmpty(available)}">
+                <div class="run-settings">
+                    <th:block th:if="${runForm != null}">
+                        <th:block th:insert="~{fragments/developer-flow :: modelChoice(${runForm})}"></th:block>
+                    </th:block>
+                    <button type="submit" class="btn btn-primary btn-sm btn-col" data-run-selected disabled>Run</button>
+                </div>
+            </div>
+        </form>
+    </section>
+
+    <section class="dev-list dev-list-inset task-list" aria-labelledby="cannot-run-title"
+             th:unless="${#lists.isEmpty(cannotRun)}">
+        <div class="dev-list-head">
+            <h2 class="dev-section-title" id="cannot-run-title">Cannot run here <span class="dev-count"
+                    th:text="${#lists.size(cannotRun)}">0</span> <span class="src src-jira">From Jira</span></h2>
+            <div class="dev-list-tools" th:if="${repositorySetupNeeded}">
+                <a class="btn btn-secondary btn-sm" th:href="@{/developer/configuration#routes-title}">Set up
+                    repositories</a>
+            </div>
+        </div>
+        <div class="dev-row" th:each="row : ${cannotRun}">
+            <input type="checkbox" class="task-check" disabled th:attr="aria-label=${row.key()} + ' cannot run'">
+            <div class="dev-row-main">
+                <span class="dev-row-name" th:title="${row.title()}" th:text="${row.title()}">Title</span>
+                <span class="dev-row-meta"><a class="key-link ext-link" th:href="${row.jiraUrl()}"
+                        th:text="${row.key()}">KEY-1</a><span class="badge badge-sm badge-muted"><span
+                        class="sr-only">Status in Jira: </span><span th:text="${row.jiraStatus()}">Open</span></span><span
+                        th:unless="${row.needsRepository()}" th:text="${row.reason()}">Out of scope.</span></span>
+            </div>
+            <div class="row-cluster row-cluster-ready">
+                <span class="chip chip-warning" th:title="${row.reason()}" th:text="${row.chip()}">No repository</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="dev-list dev-list-inset task-list" aria-labelledby="triggered-title">
+        <div class="dev-list-head">
+            <h2 class="dev-section-title" id="triggered-title">Started tasks <span class="dev-count"
+                    th:text="${page.totalElements}">0</span> <span class="src">Factory</span></h2>
+        </div>
+
+        <div class="queue-waiting" role="status" th:if="${queueWaiting != null}">
+            <strong>Queue is waiting.</strong>
+            <span th:text="${queueWaiting}">
+                KEY needs inspection.</span>
+        </div>
+
+        <div class="queue-waiting" role="status" th:if="${queueProblem != null}">
+            <strong>Queued tasks are not starting.</strong>
+            <span th:text="${queueProblem}">reason</span>
+        </div>
+
+        <div class="dev-row dev-row-open task-row" th:each="row : ${triggered}">
+            <div class="dev-row-main">
+                <div class="dev-row-meta task-row-head"><a class="key-link ext-link" th:href="${row.jiraUrl()}"
+                        th:text="${row.key()}">KEY-1</a><th:block
+                        th:replace="~{fragments/components :: ago(${row.when()}, ${row.whenAt()})}"></th:block><span
+                        class="src src-you" th:if="${row.action().yours()}">Your turn</span></div>
+                <a class="dev-row-title" th:href="@{'/tasks/' + ${row.taskId()}}" th:title="${row.title()}"
+                   th:text="${row.title()}">Title</a>
+                <div class="dev-row-meta task-row-facts" th:title="${row.factsTitle()}"><span
+                        th:each="fact : ${row.facts()}" th:text="${fact}">codemie-sonnet-5.5 · high</span><span
+                        th:if="${row.detail() != null}" th:text="${row.detail()}">detail</span></div>
+            </div>
+            <div class="task-row-side">
+                <div class="task-row-status">
+                    <span class="row-amount" th:title="${row.costTitle()}" th:text="${row.cost()}">$0.00</span>
+                    <th:block th:replace="~{fragments/developer-flow :: statusChip(${row})}"></th:block>
+                </div>
+                <a class="btn btn-secondary btn-sm" th:if="${row.button() != null}"
+                   th:href="@{${row.button().url()}}" th:text="${row.button().label()}"
+                   th:attr="aria-label=${row.button().label()} + ': ' + ${row.key()}">Answer</a>
+                <form method="post" th:if="${row.markStoppedAttemptId() != null}"
+                      th:action="@{'/tasks/' + ${row.taskId()} + '/attempts/' + ${row.markStoppedAttemptId()} + '/mark-stopped'}">
+                    <input type="hidden" name="returnTo" value="flow">
+                    <button type="submit" class="btn btn-notice btn-sm"
+                            th:attr="aria-label='Close as failed: ' + ${row.key()}, data-confirm-title='Close ' + ${row.key()} + ' as failed?'"
+                            data-confirm-ok="Close as failed" data-confirm-style="compact"
+                            data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Failed, its cost so far stays, and the queue starts the next task.">Close as failed…</button>
+                </form>
+            </div>
+        </div>
+        <p class="dev-empty" th:if="${#lists.isEmpty(triggered)}">Nothing has run yet.</p>
+        <th:block th:if="${page.totalPages > 1}">
+            <nav th:replace="~{fragments/components :: pagination(${page}, ${baseUrl})}"></nav>
+        </th:block>
+    </section>
+</div>
+</body>
+</html>

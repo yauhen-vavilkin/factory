@@ -1,21 +1,25 @@
 package org.folio.factory.devfactory.runtime;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
+import lombok.extern.slf4j.Slf4j;
 
 /** Only owned containers, with private writable storage and no host mounts. */
+@Slf4j
 public class DockerWorkloads {
-    private static final Logger log = LoggerFactory.getLogger(DockerWorkloads.class);
+    static final String YARN_CACHE = "/tmp/factory-home/.yarn-cache";
     private static final String MAVEN_REPOSITORY = "/tmp/factory-home/.m2/repository";
     private static final String MAVEN_SEED = "/tmp/factory-m2-seed";
-    static final String YARN_CACHE = "/tmp/factory-home/.yarn-cache";
     private static final String YARN_SEED = "/tmp/factory-yarn-seed";
     private static final String PARKED_NODE_MODULES = "/tmp/factory-parked-node_modules";
     private static final String STAGED_LOCKFILE = "/tmp/factory-pinned-yarn.lock";
@@ -56,23 +60,44 @@ public class DockerWorkloads {
         if (activeSteps.contains(executionId + "/" + stepId))
             throw new IllegalStateException("Workload operation is still active");
         reconcile(executionId, stepId);
-        var remaining = Processes.run(null, List.of("docker", "ps", "-aq",
-                "--filter", "label=factory.dev-owned=true", "--filter", "label=factory.dev-execution=" + executionId,
-                "--filter", "label=factory.dev-step=" + stepId), 30).requireSuccess();
+        requireNoOwnedContainers(executionId, stepId);
+    }
+
+    /**
+     * Strict cleanup for a quiescent execution: every owned workload of the
+     * execution, whatever step — including feedback invocations outside the
+     * flow's agent chain. Failure must remain visible.
+     */
+    public void cleanOwnedExecution(UUID executionId) {
+        if (executionId == null)
+            throw new IllegalArgumentException("Invalid Factory workload ownership");
+        if (activeSteps.stream().anyMatch(key -> key.startsWith(executionId + "/")))
+            throw new IllegalStateException("Workload operation is still active");
+        reconcile(executionId, null);
+        requireNoOwnedContainers(executionId, null);
+    }
+
+    private void requireNoOwnedContainers(UUID executionId, String stepId) {
+        var remaining = runCommand(ownedFilterCommand(executionId, stepId), 30).requireSuccess();
         if (!remaining.output().isBlank()) throw new IllegalStateException("Owned containers remain");
     }
 
     private void reconcile(UUID executionId, String stepId) {
-        var result = Processes.run(null, List.of("docker", "ps", "-aq",
-                "--filter", "label=factory.dev-owned=true",
-                "--filter", "label=factory.dev-execution=" + executionId,
-                "--filter", "label=factory.dev-step=" + stepId), 30).requireSuccess();
+        var result = runCommand(ownedFilterCommand(executionId, stepId), 30).requireSuccess();
         for (String id : result.output().split("\\R")) {
             if (id.isBlank()) continue;
             if (!id.matches("[a-fA-F0-9]{12,64}")) throw new IllegalStateException("Invalid Docker workload identity");
             log.warn("Removing stale Developer workload {} for execution {} step {}", id, executionId, stepId);
-            Processes.run(null, List.of("docker", "rm", "--force", id), 30).requireSuccess();
+            runCommand(List.of("docker", "rm", "--force", id), 30).requireSuccess();
         }
+    }
+
+    private static List<String> ownedFilterCommand(UUID executionId, String stepId) {
+        var command = new ArrayList<>(List.of("docker", "ps", "-aq",
+                "--filter", "label=factory.dev-owned=true",
+                "--filter", "label=factory.dev-execution=" + executionId));
+        if (stepId != null) command.addAll(List.of("--filter", "label=factory.dev-step=" + stepId));
+        return command;
     }
 
     public final class StepScope implements AutoCloseable {
@@ -115,17 +140,17 @@ public class DockerWorkloads {
                             UUID executionId, String stepId, String role) {
         String name = "factory-dev-" + UUID.randomUUID();
         String user = workloadUser(source);
-        Processes.run(null, createCommand(image, name, user, environment, mode,
-                executionId, stepId, role), 120).requireSuccess();
+        runCommand(createCommand(image, name, user, environment, mode,
+                new Owner(executionId, stepId, role)), 120).requireSuccess();
         var workload = new Workload(name, environment.toolchain());
         try {
-            Processes.run(null, List.of("docker", "start", name), 60).requireSuccess();
+            runCommand(List.of("docker", "start", name), 60).requireSuccess();
             if (mode == CacheMode.READ_ONLY_SEED) seedCache(name, environment);
             workload.copy(source.resolve(".").toString(), "/workspace");
             // Docker creates WORKDIR as root even when the workload runs as the
             // trusted checkout UID/GID. Allow that user to create build output and
             // new source files at the workspace root; the container remains private.
-            Processes.run(null, List.of("docker", "exec", "--user", "0:0", name,
+            runCommand(List.of("docker", "exec", "--user", "0:0", name,
                     "chmod", "0777", "/workspace"), 30).requireSuccess();
             return workload;
         } catch (RuntimeException e) { workload.close(); throw e; }
@@ -138,7 +163,7 @@ public class DockerWorkloads {
         // Factory-owned dependency cache volume, before a trusted baseline mounts it writable.
         // The root directory alone is insufficient: cached artifacts and nested
         // directories can belong to a previous UID and block the checkout user.
-        Processes.run(null, List.of("docker", "run", "--rm", "--user", "0:0",
+        runCommand(List.of("docker", "run", "--rm", "--user", "0:0",
                 "--label", "factory.dev-owned=true", "--label", "factory.dev-execution=" + executionId,
                 "--label", "factory.dev-step=" + stepId, "--label", "factory.dev-role=baseline-cache",
                 "--entrypoint", "/bin/sh",
@@ -154,15 +179,20 @@ public class DockerWorkloads {
         return switch (toolchain) {
             case MAVEN -> "chown -R \"$1\" " + cache + " && chmod -R u+rwX " + cache;
             case YARN -> "chown \"$1\" " + cache + " && chmod u+rwX " + cache + " && for d in " + cache
-                    + "/v[0-9]*; do [ -e \"$d\" ] || continue; chown -R \"$1\" \"$d\" && chmod -R u+rwX \"$d\" || exit 1; done";
+                    + "/v[0-9]*; do [ -e \"$d\" ] || continue;"
+                    + " chown -R \"$1\" \"$d\" && chmod -R u+rwX \"$d\" || exit 1; done";
         };
     }
 
-    /** The same lock directory would make {@code cp -a} of the whole yarn cache root fail, so only the version directory is copied. */
+    /**
+     * The same lock directory would make {@code cp -a} of the whole yarn cache root fail, so only the
+     * version directory is copied.
+     */
     static String seedScript(Toolchain toolchain, String seed, String cache) {
         String copy = switch (toolchain) {
             case MAVEN -> "cp -a " + seed + "/. " + cache + "/";
-            case YARN -> "for d in " + seed + "/v[0-9]*; do [ -e \"$d\" ] || continue; cp -a \"$d\" " + cache + "/ || exit 1; done";
+            case YARN -> "for d in " + seed + "/v[0-9]*; do [ -e \"$d\" ] || continue; cp -a \"$d\" " + cache
+                    + "/ || exit 1; done";
         };
         return "mkdir -p " + cache + " && " + copy;
     }
@@ -171,7 +201,7 @@ public class DockerWorkloads {
         Toolchain toolchain = environment.toolchain();
         String cache = cachePath(toolchain);
         try {
-            Processes.run(null, List.of("docker", "exec", name, "/bin/sh", "-c",
+            runCommand(List.of("docker", "exec", name, "/bin/sh", "-c",
                     seedScript(toolchain, seedPath(toolchain), cache)), seedTimeoutSeconds)
                     .requireSuccess();
         } catch (IllegalStateException e) {
@@ -188,7 +218,7 @@ public class DockerWorkloads {
     /** Best effort: the size is only there to explain the failure, so a failing measurement is left out. */
     private static long cacheSizeKilobytes(String name, String seed) {
         try {
-            var result = Processes.run(null, List.of("docker", "exec", name, "du", "-sk", seed), 60);
+            var result = runCommand(List.of("docker", "exec", name, "du", "-sk", seed), 60);
             if (result.exitCode() == 0) return parseDuKilobytes(result.output());
             log.warn("Could not measure the seed volume (exit {}): {}", result.exitCode(), result.diagnostics());
         } catch (RuntimeException e) {
@@ -204,7 +234,8 @@ public class DockerWorkloads {
 
     static String seedFailure(int timeoutSeconds, String volume, long sizeKilobytes, String cause) {
         String size = sizeKilobytes < 0 ? "unknown size"
-                : sizeKilobytes >= 1024 * 1024 ? String.format(java.util.Locale.ROOT, "%.1f GB", sizeKilobytes / (1024.0 * 1024))
+                : sizeKilobytes >= 1024 * 1024
+                        ? String.format(java.util.Locale.ROOT, "%.1f GB", sizeKilobytes / (1024.0 * 1024))
                 : sizeKilobytes / 1024 + " MB";
         String shortCause = cause == null ? "" : cause.substring(0, Math.min(300, cause.length()));
         return "Copying the dependency cache volume '" + volume + "' (" + size + ") into a new workload failed (limit "
@@ -212,13 +243,17 @@ public class DockerWorkloads {
                 + " (FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS) or reduce the cache.";
     }
 
+    /** The run step a workload belongs to, written onto its container as labels. */
+    record Owner(UUID executionId, String stepId, String role) {
+    }
+
     static List<String> createCommand(String image, String name, String user, BuildEnvironment environment,
-                                      CacheMode mode, UUID executionId, String stepId, String role) {
+                                      CacheMode mode, Owner owner) {
         var command = new ArrayList<>(List.of("docker", "create", "--name", name,
                 "--label", "factory.dev-owned=true",
-                "--label", "factory.dev-execution=" + executionId,
-                "--label", "factory.dev-step=" + stepId,
-                "--label", "factory.dev-role=" + role,
+                "--label", "factory.dev-execution=" + owner.executionId(),
+                "--label", "factory.dev-step=" + owner.stepId(),
+                "--label", "factory.dev-role=" + owner.role(),
                 "--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                 "--user", user, "--env", "HOME=/tmp/factory-home"));
         for (String variable : variables(environment.toolchain())) command.addAll(List.of("--env", variable));
@@ -266,12 +301,16 @@ public class DockerWorkloads {
         return prepare + "; exec sleep infinity";
     }
 
-    enum CacheMode { NONE, TRUSTED_WRITABLE, READ_ONLY_SEED }
+    private static Processes.Result runCommand(List<String> argv, int seconds) {
+        return Processes.run(null, argv, seconds, Map.of(), Processes.OUTPUT_LIMIT, null);
+    }
+
+    enum CacheMode { TRUSTED_WRITABLE, READ_ONLY_SEED }
 
     private static String workloadUser(Path source) {
         try {
-            Number uid = (Number) java.nio.file.Files.getAttribute(source, "unix:uid");
-            Number gid = (Number) java.nio.file.Files.getAttribute(source, "unix:gid");
+            Number uid = (Number) Files.getAttribute(source, "unix:uid");
+            Number gid = (Number) Files.getAttribute(source, "unix:gid");
             return uid + ":" + gid;
         } catch (java.io.IOException | UnsupportedOperationException e) {
             throw new IllegalStateException("Cannot resolve trusted workspace ownership", e);
@@ -284,7 +323,7 @@ public class DockerWorkloads {
         private Workload(String name, Toolchain toolchain) { this.name = name; this.toolchain = toolchain; }
         public String name() { return name; }
         public void copy(String local, String destination) {
-            Processes.run(null, List.of("docker", "cp", local, name + ":" + destination), 120).requireSuccess();
+            runCommand(List.of("docker", "cp", local, name + ":" + destination), 120).requireSuccess();
         }
         /**
          * Places the pinned lockfile at /workspace/yarn.lock, owned by the workload user: {@code docker cp}
@@ -293,82 +332,103 @@ public class DockerWorkloads {
         public void seedLockfile(PinnedLockfile lockfile) {
             Path staged = null;
             try {
-                staged = java.nio.file.Files.createTempFile("factory-lockfile-", ".lock");
-                java.nio.file.Files.writeString(staged, lockfile.content());
+                staged = Files.createTempFile("factory-lockfile-", ".lock");
+                Files.writeString(staged, lockfile.content());
                 copy(staged.toString(), STAGED_LOCKFILE);
-                Processes.run(null, List.of("docker", "exec", "--workdir", "/workspace", name, "cp",
+                runCommand(List.of("docker", "exec", "--workdir", "/workspace", name, "cp",
                         STAGED_LOCKFILE, PinnedLockfile.FILE), 30).requireSuccess();
             } catch (java.io.IOException e) {
                 throw new IllegalStateException("Cannot stage the pinned lockfile", e);
             } finally {
-                if (staged != null) try { java.nio.file.Files.deleteIfExists(staged); } catch (java.io.IOException ignored) { }
+                deleteQuietly(staged);
             }
         }
         /** The lockfile yarn left in /workspace, if any; rejects one that is not usable text within the size limit. */
         public Optional<PinnedLockfile> readLockfile() {
             // Code in the workload decides what sits at this path, so only a plain file is read.
-            boolean link = execute(List.of("test", "-L", PinnedLockfile.FILE), 30).exitCode() == 0;
-            if (!link && execute(List.of("test", "-e", PinnedLockfile.FILE), 30).exitCode() != 0) return Optional.empty();
-            if (link || execute(List.of("test", "-f", PinnedLockfile.FILE), 30).exitCode() != 0)
+            boolean link = succeeds(List.of("test", "-L", PinnedLockfile.FILE));
+            if (!link && !succeeds(List.of("test", "-e", PinnedLockfile.FILE))) return Optional.empty();
+            if (link || !succeeds(List.of("test", "-f", PinnedLockfile.FILE)))
                 throw new IllegalStateException("yarn.lock is not a regular file");
             Path staged = null;
             try {
-                staged = java.nio.file.Files.createTempFile("factory-lockfile-", ".lock");
-                Processes.run(null, List.of("docker", "cp", name + ":/workspace/" + PinnedLockfile.FILE,
+                staged = Files.createTempFile("factory-lockfile-", ".lock");
+                runCommand(List.of("docker", "cp", name + ":/workspace/" + PinnedLockfile.FILE,
                         staged.toString()), 60).requireSuccess();
-                if (!java.nio.file.Files.isRegularFile(staged, java.nio.file.LinkOption.NOFOLLOW_LINKS))
-                    throw new IllegalStateException("yarn.lock is not a regular file");
-                if (java.nio.file.Files.size(staged) > PinnedLockfile.MAX_BYTES)
-                    throw new IllegalStateException("yarn.lock exceeds " + PinnedLockfile.MAX_BYTES / (1024 * 1024) + " MiB");
-                return Optional.of(PinnedLockfile.of(java.nio.file.Files.readAllBytes(staged)));
+                return Optional.of(PinnedLockfile.of(readStagedLockfile(staged)));
             } catch (java.io.IOException e) {
                 throw new IllegalStateException("Cannot read the generated yarn.lock", e);
             } catch (IllegalArgumentException e) {
                 throw new IllegalStateException("The generated yarn.lock is unusable: " + e.getMessage(), e);
             } finally {
-                if (staged != null) try { java.nio.file.Files.deleteIfExists(staged); } catch (java.io.IOException ignored) { }
+                deleteQuietly(staged);
             }
         }
-        public Processes.Result execute(List<String> argv, int timeout) {
-            return execute(argv, timeout, Processes.OUTPUT_LIMIT);
+        private boolean succeeds(List<String> argv) {
+            return execute(argv, 30, Processes.OUTPUT_LIMIT, null).exitCode() == 0;
         }
-        public Processes.Result execute(List<String> argv, int timeout, int outputLimit) {
-            return execute(argv, timeout, outputLimit, null);
+        private static byte[] readStagedLockfile(Path staged) throws java.io.IOException {
+            if (!Files.isRegularFile(staged, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+                throw new IllegalStateException("yarn.lock is not a regular file");
+            if (Files.size(staged) > PinnedLockfile.MAX_BYTES)
+                throw new IllegalStateException(
+                        "yarn.lock exceeds " + PinnedLockfile.MAX_BYTES / (1024 * 1024) + " MiB");
+            return Files.readAllBytes(staged);
+        }
+        private static void deleteQuietly(Path staged) {
+            if (staged == null) return;
+            try {
+                Files.deleteIfExists(staged);
+            } catch (java.io.IOException ignored) {
+                // A leftover temporary file holds no secret and is not worth failing the run.
+            }
         }
         public Processes.Result execute(List<String> argv, int timeout, int outputLimit,
-                                        java.util.function.Consumer<String> stdoutLine) {
+                                        Consumer<String> stdoutLine) {
             if (stopped) throw new IllegalStateException("Workload is stopped");
             var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
             command.addAll(argv);
-            return Processes.run(null, command, timeout, java.util.Map.of(), outputLimit, stdoutLine);
+            return Processes.run(null, command, timeout, Map.of(), outputLimit, stdoutLine);
         }
-        /** For the plan's own build and test command: a verbose suite is not a failure, so only the output tail is kept. */
-        public Processes.Result executeKeepingTail(List<String> argv, int timeout, int tailLimit,
-                                                   java.util.function.Consumer<String> stdoutLine) {
+        public Processes.Streamed stream(List<String> argv, int timeout, int lineLimit,
+                                         UnaryOperator<String> redactor,
+                                         Predicate<String> stdoutLine) {
             if (stopped) throw new IllegalStateException("Workload is stopped");
             var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
             command.addAll(argv);
-            return Processes.runKeepingTail(null, command, timeout, java.util.Map.of(), tailLimit, stdoutLine);
+            return Processes.stream(null, command, timeout, lineLimit, redactor, stdoutLine);
+        }
+        /**
+         * For the plan's own build and test command: a verbose suite is not a failure, so only the output
+         * tail is kept.
+         */
+        public Processes.Result executeKeepingTail(List<String> argv, int timeout, int tailLimit,
+                                                   Consumer<String> stdoutLine) {
+            if (stopped) throw new IllegalStateException("Workload is stopped");
+            var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
+            command.addAll(argv);
+            return Processes.runKeepingTail(null, command, timeout, Map.of(), tailLimit, stdoutLine);
         }
         /** Stops the workload for export; yarn's installed dependencies are moved out of /workspace first. */
         public void stop() {
             if (!stopped) {
                 if (toolchain == Toolchain.YARN) {
-                    Processes.run(null, List.of("docker", "exec", "--workdir", "/workspace", name, "/bin/sh", "-c",
+                    runCommand(List.of("docker", "exec", "--workdir", "/workspace", name, "/bin/sh", "-c",
                             "if [ -e node_modules ] || [ -L node_modules ]; then mv node_modules "
                                     + PARKED_NODE_MODULES + "; fi"), 120);
                 }
-                Processes.run(null, List.of("docker", "stop", "--time", "2", name), 30).requireSuccess();
+                runCommand(List.of("docker", "stop", "--time", "2", name), 30).requireSuccess();
             }
             stopped = true;
         }
         public void export(Path destination) {
             if (!stopped) throw new IllegalStateException("Stop workload before export");
-            Processes.run(null, List.of("docker", "cp", name + ":/workspace/.", destination.toString()), 120).requireSuccess();
+            runCommand(List.of("docker", "cp", name + ":/workspace/.", destination.toString()), 120)
+                    .requireSuccess();
         }
         @Override public void close() {
             try {
-                Processes.run(null, List.of("docker", "rm", "--force", name), 30).requireSuccess();
+                runCommand(List.of("docker", "rm", "--force", name), 30).requireSuccess();
             } catch (RuntimeException e) {
                 log.warn("Could not remove owned workload {}: {}", name, e.getMessage());
             }

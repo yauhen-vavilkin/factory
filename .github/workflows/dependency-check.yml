@@ -1,4 +1,4 @@
-# Opt-in software-composition-analysis (DEP-1). Deliberately NOT run on every push/PR:
+# Opt-in software-composition-analysis. Deliberately NOT run on every push/PR:
 # the OWASP NVD feed download is slow and network-bound. Runs weekly + on demand.
 # ci.yml owns the primary build/test workflow; this workflow is standalone.
 name: dependency-check

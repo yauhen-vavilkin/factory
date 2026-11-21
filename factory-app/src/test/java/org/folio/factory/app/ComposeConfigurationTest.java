@@ -1,0 +1,337 @@
+package org.folio.factory.app;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+/** Configuration-only Compose checks: no Docker daemon, containers or real credentials. */
+class ComposeConfigurationTest {
+    private static final Set<String> REPOSITORY_PREFIXES = Set.of(
+            "SIDECAR", "MOD_ROLES_KEYCLOAK", "MGR_TENANT_ENTITLEMENTS", "MGR_APPLICATIONS");
+    private static final Set<String> REPOSITORY_FIELDS = Set.of(
+            "SOURCE_REPO", "DELIVERY_REPO", "BASE_BRANCH");
+    private static final Set<String> COMPOSE_ONLY = Set.of(
+            "COMPOSE_PROJECT_NAME", "FACTORY_APP_IMAGE", "FACTORY_APP_PORT", "FACTORY_DB_PORT",
+            "FACTORY_BIND_ADDRESS", "FACTORY_DEV_FACTORY_REPOSITORIES_FILE", "FACTORY_DEV_FACTORY_MODELS_FILE");
+    private static final Path ROOT = repositoryRoot();
+    private static final String CATALOG_MOUNT = "/application/config/developer-repositories.yaml";
+    private static final String MODELS_MOUNT = "/application/config/developer-models.yaml";
+    private static final Set<String> INHERITED_PROCESS_VARIABLES =
+            Set.of("PATH", "HOME", "TMPDIR", "SystemRoot");
+
+    @TempDir Path fixture;
+
+    @Test
+    void everyDocumentedApplicationSettingAndSpringPlaceholderHasAComposeEntry() throws IOException {
+        var documented = names(Files.readString(ROOT.resolve(".env.example")),
+                "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)=");
+        documented.addAll(names(Files.readString(ROOT.resolve(".env.tasks.example")),
+                "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)="));
+        for (String path : new String[]{"factory-app/src/main/resources/application.yaml",
+                "config/developer-repositories.yaml"}) {
+            documented.addAll(names(Files.readString(ROOT.resolve(path)), "\\$\\{([A-Z][A-Z0-9_]+)[:}]"));
+        }
+        // Factory reads each model's secret by the variable the models file names.
+        documented.addAll(names(Files.readString(ROOT.resolve("config/developer-models.yaml")),
+                "(?m)^\\s*secret-env:\\s*([A-Z][A-Z0-9_]+)"));
+        documented.removeAll(COMPOSE_ONLY);
+        var forwarded = names(Files.readString(ROOT.resolve("docker-compose.yml")),
+                "(?m)^      ([A-Z][A-Z0-9_]+):");
+        assertThat(forwarded).as("Compose must forward every documented application setting")
+                .containsAll(documented);
+    }
+
+    @Test
+    void dotenvSettingsReachTheAppAndTheDatabaseUrlStaysOnTheComposeService() throws Exception {
+        Map<String, String> dotenv = new HashMap<>(Map.ofEntries(
+                Map.entry("FACTORY_LLM_PROVIDER", "openai"),
+                Map.entry("FACTORY_LLM_API_KEY", "fixture-test-provider-key"),
+                Map.entry("FACTORY_LLM_MODEL", "model-from-dotenv"),
+                Map.entry("FACTORY_LLM_BASE_URL", "https://fixture.invalid/v1"),
+                Map.entry("FACTORY_TEST_FACTORY_TARGET_REPO", "fixture/test-target"),
+                Map.entry("FACTORY_TEST_FACTORY_EXECUTION_BASE_URL", "http://fixture.invalid:8000"),
+                Map.entry("FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID", "42"),
+                Map.entry("FACTORY_WEBHOOKS_SHARED_SECRET", "fixture-webhook-secret"),
+                Map.entry("FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS", "1"),
+                Map.entry("FACTORY_ENGINE_WORKER_THREADS", "2"),
+                Map.entry("FACTORY_DB_POOL_MAX", "12"),
+                Map.entry("FACTORY_HTTP_READ_TIMEOUT", "17s"),
+                Map.entry("FACTORY_RETENTION_RUN_CRON", "0 15 4 * * *"),
+                Map.entry("FACTORY_LOG_FORMAT", "ecs"),
+                Map.entry("FACTORY_CLAUDE_CODE_MAX_TURNS", "120"),
+                Map.entry("FACTORY_DEV_FACTORY_DEFAULT_MODEL", "anthropic-sonnet-5.5"),
+                Map.entry("FACTORY_ANTHROPIC_API_KEY", "fixture-coding-key"),
+                Map.entry("FACTORY_CODEMIE_PROXY_TOKEN", "fixture-custom-proxy-token"),
+                Map.entry("FACTORY_DB_URL", "jdbc:postgresql://localhost:5432/host-run")));
+        for (String prefix : REPOSITORY_PREFIXES) {
+            for (String field : REPOSITORY_FIELDS) {
+                dotenv.put("FACTORY_" + prefix + "_" + field, "fixture/" + prefix + "-" + field);
+            }
+        }
+        var environment = render(dotenv, Map.of()).path("services").path("factory").path("environment");
+
+        Map<String, String> forwarded = new HashMap<>(dotenv);
+        forwarded.remove("FACTORY_DB_URL");
+        assertEnvironmentContains(environment, forwarded);
+        // Compose's service connection is intentional; host-run DB_URL must not break it.
+        assertThat(environment.path("FACTORY_DB_URL").asString()).isEqualTo("jdbc:postgresql://postgres:5432/factory");
+    }
+
+    @Test
+    void withoutADotenvTheModelKeysArriveEmptyAndClaudeCodeIsTheRuntime() throws Exception {
+        var config = render(Map.of(), Map.of());
+        var environment = config.path("services").path("factory").path("environment");
+
+        assertLocalCodeMieProfile(environment);
+        assertThat(config.path("services").path("coding-runtime").path("image").asString())
+                .startsWith("factory-dev-claude-code:");
+        // Unset values arrive empty, which Factory treats as unset: the first model and "not configured".
+        assertThat(environment.path("FACTORY_ANTHROPIC_API_KEY").asString()).isEmpty();
+        assertThat(environment.path("FACTORY_DEV_FACTORY_DEFAULT_MODEL").asString()).isEmpty();
+    }
+
+    @Test
+    void copiedExampleUsesLocalProxyAndDoesNotOverrideTheCatalog() throws Exception {
+        Map<String, String> example = exampleEnvironment(".env.example");
+        var config = render(example, Map.of());
+        var environment = config.path("services").path("factory").path("environment");
+
+        assertLocalCodeMieProfile(environment);
+        for (String prefix : REPOSITORY_PREFIXES) {
+            for (String field : REPOSITORY_FIELDS) {
+                assertThat(isUnset(environment.path("FACTORY_" + prefix + "_" + field)))
+                        .as("The example must keep the catalog %s for %s", field, prefix)
+                        .isTrue();
+            }
+        }
+    }
+
+    @Test
+    void taskExampleAsksOnlyForTheAssigneeAndTokenAndStaysOnTheSupportedLocalProfile() throws Exception {
+        Map<String, String> taskRun = exampleEnvironment(".env.tasks.example");
+        var config = render(taskRun, Map.of());
+        var environment = config.path("services").path("factory").path("environment");
+
+        assertThat(taskRun).containsOnlyKeys("FACTORY_CONNECTORS_JIRA_BASE_URL", "FACTORY_TASKS_ASSIGNEE",
+                "FACTORY_CONNECTORS_GITHUB_TOKEN", "FACTORY_TASKS_EXECUTION_ENABLED");
+        assertLocalCodeMieProfile(environment);
+        assertEnvironmentContains(environment, Map.of(
+                "FACTORY_CONNECTORS_JIRA_BASE_URL", "https://folio-org.atlassian.net",
+                "FACTORY_TASKS_EXECUTION_ENABLED", "true"));
+        // Retention keeps its off default; task execution refuses to start tasks while it is on.
+        assertThat(isUnset(environment.path("FACTORY_RETENTION_ENABLED"))).isTrue();
+        assertThat(isUnset(environment.path("FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS"))).isTrue();
+    }
+
+    @Test
+    void publishedPortsStayLoopbackOnlyAndTheCodingRuntimeExposesNothing() throws Exception {
+        var config = render(Map.of(), Map.of());
+        var factory = config.path("services").path("factory");
+        var coding = config.path("services").path("coding-runtime");
+
+        assertThat(coding.path("ports").isMissingNode()
+                || coding.path("ports").isEmpty()).isTrue();
+        for (JsonNode port : factory.path("ports")) {
+            assertThat(port.path("host_ip").asString()).isEqualTo("127.0.0.1");
+        }
+    }
+
+    @Test
+    void catalogAndModelsMountsAreReadOnlyAndPersistentStorageUsesNamedVolumes() throws Exception {
+        var services = render(Map.of(), Map.of()).path("services");
+        var factory = services.path("factory");
+
+        JsonNode catalog = requireVolume(factory, CATALOG_MOUNT);
+        assertThat(catalog.path("read_only").asBoolean()).isTrue();
+        JsonNode models = requireVolume(factory, MODELS_MOUNT);
+        assertThat(models.path("read_only").asBoolean()).isTrue();
+        assertThat(models.path("source").asString()).endsWith("config/developer-models.yaml");
+        assertThat(requireVolume(services.path("postgres"), "/var/lib/postgresql/data")
+                .path("source").asString()).endsWith("factory-pgdata");
+        JsonNode m2 = requireVolume(factory, "/var/lib/factory-dev-m2-cache");
+        assertThat(m2.path("read_only").asBoolean()).isTrue();
+    }
+
+    @Test
+    void modelsFileSecretAndDefaultModelReachTheApp() throws Exception {
+        Path models = fixture.resolve("my-models.yaml");
+        Files.writeString(models, "factory: {}\n");
+        var factory = render(Map.of("FACTORY_DEV_FACTORY_MODELS_FILE", models.toString(),
+                "FACTORY_ANTHROPIC_API_KEY", "fixture-anthropic-key", "FACTORY_DEV_FACTORY_DEFAULT_MODEL",
+                "anthropic-sonnet-5.5"), Map.of()).path("services").path("factory");
+        var environment = factory.path("environment");
+
+        assertEnvironmentContains(environment, Map.of("FACTORY_ANTHROPIC_API_KEY", "fixture-anthropic-key",
+                "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "anthropic-sonnet-5.5"));
+        assertThat(environment.path("SPRING_CONFIG_IMPORT").asString())
+                .contains("classpath:developer-models.yaml,file:" + MODELS_MOUNT);
+        assertThat(requireVolume(factory, MODELS_MOUNT).path("source").asString()).isEqualTo(models.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"claude-code", "pi"})
+    void selectedRuntimeAndRepositoryMountAreResolvedWithoutLoadingDeveloperEnvironment(String runtime)
+            throws Exception {
+        Path catalog = fixture.resolve("operator-repositories.yaml");
+        Files.writeString(catalog, "factory: {}\n");
+        var config = render(Map.of(
+                "FACTORY_DEV_FACTORY_CODING_RUNTIME", runtime,
+                "FACTORY_DEV_FACTORY_REPOSITORIES_FILE", catalog.toString()), Map.of());
+        var factory = config.path("services").path("factory");
+        var environment = factory.path("environment");
+        assertThat(environment.path("FACTORY_DEV_FACTORY_CODING_RUNTIME").asString()).isEqualTo(runtime);
+        assertThat(config.path("services").path("coding-runtime").path("image").asString())
+                .startsWith(runtime.equals("pi") ? "factory-dev-pi:" : "factory-dev-claude-code:");
+        // Unset optional values must remain absent, rather than overriding Spring defaults with empty strings.
+        assertThat(isUnset(environment.path("FACTORY_LLM_MODEL"))).isTrue();
+        for (String prefix : REPOSITORY_PREFIXES) {
+            for (String field : REPOSITORY_FIELDS) {
+                var value = environment.path("FACTORY_" + prefix + "_" + field);
+                assertThat(isUnset(value))
+                        .as("Compose must retain the catalog default for %s %s", prefix, field).isTrue();
+            }
+        }
+        assertThat(environment.path("SPRING_CONFIG_IMPORT").asString())
+                .contains("file:/application/config/developer-repositories.yaml");
+        JsonNode catalogVolume = requireVolume(factory, CATALOG_MOUNT);
+        assertThat(catalogVolume.path("source").asString()).isEqualTo(catalog.toString());
+        assertThat(catalogVolume.path("read_only").asBoolean()).isTrue();
+    }
+
+    private static void assertLocalCodeMieProfile(JsonNode environment) {
+        // The CodeMie models come first in config/developer-models.yaml; compose gives them the public token.
+        assertEnvironmentContains(environment, Map.of(
+                "FACTORY_DEV_FACTORY_CODING_RUNTIME", "claude-code",
+                "FACTORY_CODEMIE_PROXY_TOKEN", "codemie-proxy",
+                "FACTORY_CLAUDE_CODE_MAX_TURNS", "400",
+                "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", "3600",
+                "FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS", "9000"));
+    }
+
+    private static Map<String, String> exampleEnvironment(String fileName) throws IOException {
+        Map<String, String> variables = new HashMap<>();
+        for (String line : Files.readAllLines(ROOT.resolve(fileName))) {
+            if (line.isBlank() || line.startsWith("#")) {
+                continue;
+            }
+            String[] assignment = line.split("=", 2);
+            assertThat(assignment).as("Environment assignment: %s", line).hasSize(2);
+            variables.put(assignment[0], assignment[1]);
+        }
+        return variables;
+    }
+
+    private JsonNode render(Map<String, String> dotenv, Map<String, String> shell) throws Exception {
+        assumeTrue(composeAvailable(), "Docker Compose CLI is required for configuration rendering only");
+        Path variables = prepareFixture(dotenv);
+        var builder = command(
+                "docker", "compose", "--env-file", variables.toString(), "-f",
+                fixture.resolve("docker-compose.yml").toString(), "config", "--format", "json");
+        builder.environment().putAll(shell);
+        Path output = fixture.resolve("rendered.json");
+        var process = builder.redirectErrorStream(true).redirectOutput(output.toFile()).start();
+        if (!process.waitFor(20, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new AssertionError("Docker Compose configuration rendering timed out");
+        }
+        assertThat(process.exitValue())
+                .as("Compose should render the isolated fixture successfully")
+                .isZero();
+        return JsonMapper.builder().build().readTree(Files.readString(output));
+    }
+
+    private Path prepareFixture(Map<String, String> dotenv) throws IOException {
+        // Copy only public Compose files into the fixture: includes cannot consult the real checkout's .env.
+        String[] composeFiles = {
+                "docker-compose.yml", "compose.runtime-pi.yml", "compose.runtime-claude-code.yml"
+        };
+        for (String file : composeFiles) {
+            Files.copy(ROOT.resolve(file), fixture.resolve(file));
+        }
+        Files.writeString(fixture.resolve(".env"), "FACTORY_LLM_MODEL=must-not-be-autoloaded\n");
+        Path variables = fixture.resolve("operator.env");
+        var text = new StringBuilder();
+        dotenv.forEach((key, value) -> text.append(key).append('=').append(value).append('\n'));
+        Files.writeString(variables, text);
+        return variables;
+    }
+
+    private static boolean composeAvailable() throws Exception {
+        try {
+            var process = command("docker", "compose", "version").redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            if (process.waitFor(10, TimeUnit.SECONDS)) {
+                return process.exitValue() == 0;
+            }
+            process.destroyForcibly();
+            return false;
+        } catch (IOException absent) {
+            return false;
+        }
+    }
+
+    private static ProcessBuilder command(String... command) {
+        var builder = new ProcessBuilder(command);
+        var environment = builder.environment();
+        environment.keySet().removeIf(key -> !INHERITED_PROCESS_VARIABLES.contains(key));
+        environment.put("COMPOSE_PROJECT_NAME", "factory-compose-contract");
+        return builder;
+    }
+
+    private static Set<String> names(String text, String regex) {
+        var result = new HashSet<String>();
+        var matcher = Pattern.compile(regex).matcher(text);
+        while (matcher.find()) {
+            result.add(matcher.group(1));
+        }
+        return result;
+    }
+
+    private static Path repositoryRoot() {
+        Path path = Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        while (path != null && !Files.isRegularFile(path.resolve("docker-compose.yml"))) {
+            path = path.getParent();
+        }
+        if (path == null) {
+            throw new IllegalStateException("Cannot locate the Factory Compose configuration");
+        }
+        return path;
+    }
+
+    private static void assertEnvironmentContains(JsonNode environment, Map<String, String> expected) {
+        for (var entry : expected.entrySet()) {
+            assertThat(environment.path(entry.getKey()).asString())
+                    .as("Compose environment variable %s", entry.getKey())
+                    .isEqualTo(entry.getValue());
+        }
+    }
+
+    private static boolean isUnset(JsonNode value) {
+        return value.isNull() || value.isMissingNode();
+    }
+
+    private static JsonNode requireVolume(JsonNode service, String target) {
+        for (JsonNode volume : service.path("volumes")) {
+            if (target.equals(volume.path("target").asString(""))) {
+                return volume;
+            }
+        }
+        throw new AssertionError("Missing Compose volume mounted at " + target);
+    }
+}

@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.decision;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -26,21 +27,13 @@ import java.util.Map;
  * rejects the execution. The calling worker must declare no outputs: anything it
  * returned would be written after the review package was built.</p>
  */
+@RequiredArgsConstructor
 public class ConditionalDecisionGate {
 
     private final StateManager stateManager;
     private final FlowRegistry flowRegistry;
     private final HitlGateOpener gateOpener;
     private final HitlReviewRepository reviews;
-
-    public ConditionalDecisionGate(StateManager stateManager,
-                                   FlowRegistry flowRegistry, HitlGateOpener gateOpener,
-                                   HitlReviewRepository reviews) {
-        this.stateManager = stateManager;
-        this.flowRegistry = flowRegistry;
-        this.gateOpener = gateOpener;
-        this.reviews = reviews;
-    }
 
     /**
      * @return true when this call opened the review; false when a review for this

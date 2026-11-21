@@ -16,6 +16,4 @@ public interface HitlReviewRepository extends JpaRepository<HitlReview, UUID> {
     List<HitlReview> findByExecutionIdOrderByCreatedAtAsc(UUID executionId);
 
     Page<HitlReview> findByStatus(HitlReviewStatus status, Pageable pageable);
-
-    long countByStatus(HitlReviewStatus status);
 }

@@ -1,5 +1,6 @@
 package org.folio.factory.app.health;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
@@ -19,13 +20,10 @@ import java.util.List;
  * a DOWN pod.</p>
  */
 @Component
+@RequiredArgsConstructor
 public class ConnectorsHealthIndicator implements HealthIndicator {
 
     private final List<ConnectorHealth> connectors;
-
-    public ConnectorsHealthIndicator(List<ConnectorHealth> connectors) {
-        this.connectors = connectors;
-    }
 
     @Override
     public Health health() {

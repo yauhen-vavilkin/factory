@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -18,6 +19,7 @@ import java.util.UUID;
  * Append-only audit record. The database enforces immutability with a trigger
  * that rejects UPDATE and DELETE; the repository exposes no mutation methods.
  */
+@Getter
 @Entity
 @Table(name = "audit_event")
 public class AuditEvent {
@@ -58,31 +60,4 @@ public class AuditEvent {
         this.occurredAt = Instant.now();
     }
 
-    public Long getId() {
-        return id;
-    }
-
-    public UUID getExecutionId() {
-        return executionId;
-    }
-
-    public AuditEventType getEventType() {
-        return eventType;
-    }
-
-    public String getStepId() {
-        return stepId;
-    }
-
-    public String getActor() {
-        return actor;
-    }
-
-    public String getDetail() {
-        return detail;
-    }
-
-    public Instant getOccurredAt() {
-        return occurredAt;
-    }
 }

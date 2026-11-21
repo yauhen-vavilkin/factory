@@ -1,5 +1,6 @@
 package org.folio.factory.testfactory.quality;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.engine.StepPostProcessor;
 import org.folio.factory.core.registry.model.FlowDescriptor;
@@ -16,13 +17,10 @@ import java.util.Map;
  * QA sign-off gate or a repository commit.
  */
 @Component
+@RequiredArgsConstructor
 public class KarateSanityPostProcessor implements StepPostProcessor {
 
     private final ScriptBundleCodec bundleCodec;
-
-    public KarateSanityPostProcessor(ScriptBundleCodec bundleCodec) {
-        this.bundleCodec = bundleCodec;
-    }
 
     @Override
     public void process(FlowDescriptor flow, StepDescriptor step, Map<String, String> outputs) {

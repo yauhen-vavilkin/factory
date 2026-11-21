@@ -1,20 +1,20 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.tasks.persistence.RunState;
+import org.folio.factory.app.tasks.presentation.Statistics;
+import org.folio.factory.app.tasks.presentation.StatisticsRows;
+import org.folio.factory.app.web.DashboardUiController.RunTile;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
-import org.folio.factory.core.domain.ExecutionStatus;
-import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
-import org.folio.factory.core.repository.HitlReviewRepository;
-import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,8 +32,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,16 +61,13 @@ class DashboardUiControllerTest {
     private FlowRegistryEntryRepository flowRegistryEntries;
 
     @Mock
-    private PipelineExecutionRepository executions;
-
-    @Mock
-    private HitlReviewRepository reviews;
-
-    @Mock
     private AuditEventRepository audit;
 
     @Mock
     private DashboardStatsService dashboardStats;
+
+    @Mock
+    private StatisticsRows statisticsRows;
 
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
@@ -86,23 +85,16 @@ class DashboardUiControllerTest {
     private MockMvc mvcWithConnectors(List<ConnectorHealth> connectors) {
         EngineProperties engine = new EngineProperties(true, 2000L, 5, 4, 1800L, 30, true);
         DashboardUiController controller = new DashboardUiController(
-                connectors, flowRegistry, engine, flowRegistryEntries, executions, reviews, audit, json,
-                dashboardStats);
+                connectors, flowRegistry, engine, flowRegistryEntries, audit, json, dashboardStats, statisticsRows);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
 
     private void stubKpiCounts() {
-        when(executions.countGroupedByStatus()).thenReturn(List.of(
-                new Object[]{ExecutionStatus.PENDING, 2L},
-                new Object[]{ExecutionStatus.RUNNING, 1L},
-                new Object[]{ExecutionStatus.AWAITING_HITL, 3L},
-                new Object[]{ExecutionStatus.COMPLETED, 10L},
-                new Object[]{ExecutionStatus.FAILED_ESCALATED, 4L},
-                new Object[]{ExecutionStatus.REJECTED, 1L},
-                new Object[]{ExecutionStatus.CANCELLED, 2L}));
-        when(reviews.countByStatus(HitlReviewStatus.PENDING)).thenReturn(5L);
+        when(dashboardStats.countByState(anyInt())).thenReturn(new EnumMap<>(Map.of(
+                RunState.IN_PROGRESS, 3L, RunState.WAITING_FOR_REVIEW, 3L, RunState.PULL_REQUEST, 2L,
+                RunState.COMPLETED, 10L, RunState.FAILED, 4L, RunState.CANCELLED_OR_REJECTED, 3L)));
         when(dashboardStats.tokenUsage(anyInt())).thenReturn(new TokenUsage(1234, 567));
         when(dashboardStats.stepTokens(anyInt())).thenReturn(List.of(
                 new StepTokenCount("test-factory", "test-automation", 1000, 400),
@@ -117,13 +109,16 @@ class DashboardUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
                 .andExpect(model().attribute("days", 14))
-                .andExpect(model().attribute("totalExecutions", 23L))
-                .andExpect(model().attribute("completedCount", 10L))
-                .andExpect(model().attribute("awaitingHitlCount", 3L))
-                .andExpect(model().attribute("pendingReviews", 5L))
-                .andExpect(model().attribute("failedCount", 4L))
-                .andExpect(model().attribute("cancelledCount", 2L))
-                .andExpect(model().attribute("rejectedCount", 1L))
+                .andExpect(model().attribute("runTiles", List.of(
+                        new RunTile("Total runs", "25", "/executions?days=14"),
+                        new RunTile("In progress", "3", "/executions?status=IN_PROGRESS&days=14"),
+                        new RunTile("Waiting for review", "3", "/executions?status=WAITING_FOR_REVIEW&days=14"),
+                        new RunTile("Pull request opened", "2", "/executions?status=PULL_REQUEST&days=14"),
+                        new RunTile("Completed", "10", "/executions?status=COMPLETED&days=14"),
+                        new RunTile("Asked a question", "0", "/executions?status=ASKED&days=14"),
+                        new RunTile("Needs inspection", "0", "/executions?status=NEEDS_INSPECTION&days=14"),
+                        new RunTile("Failed", "4", "/executions?status=FAILED&days=14"),
+                        new RunTile("Cancelled or rejected", "3", "/executions?status=CANCELLED_OR_REJECTED&days=14"))))
                 .andExpect(model().attribute("engineEnabled", true))
                 .andExpect(model().attribute("connectorsConfigured", 1))
                 .andExpect(model().attribute("connectorsTotal", 2))
@@ -134,40 +129,49 @@ class DashboardUiControllerTest {
     @Test
     void dashboard_tokenRowsCarryGroupedCountsHeaviestFirst() throws Exception {
         stubKpiCounts();
+        when(flowRegistry.find("test-factory")).thenReturn(Optional.of(
+                new FlowDescriptor("test-factory", "Test Factory", "1.0.0", null, null, null, null, null)));
 
         MvcResult result = mvc.perform(get("/")).andExpect(status().isOk()).andReturn();
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> rows =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("stepTokens");
-        assertThat(rows).hasSize(2);
-        assertThat(rows.get(0)).containsEntry("stepId", "test-automation")
-                .containsEntry("prompt", "1,000")
-                .containsEntry("completion", "400")
-                .containsEntry("total", "1,400");
-        assertThat(rows.get(1)).containsEntry("stepId", "triage").containsEntry("total", "401");
+        var rows = (List<DashboardUiController.StepTokenRow>) result.getModelAndView().getModel().get("stepTokens");
+        // The flow by its registered name, the step in the words of the Definition tab.
+        assertThat(rows).containsExactly(
+                new DashboardUiController.StepTokenRow("Test Factory", "Test automation", "1,000", "400", "1,400"),
+                new DashboardUiController.StepTokenRow("Test Factory", "Triage", "234", "167", "401"));
     }
 
     @Test
-    void dashboard_scopesTokenQueriesToTheClampedWindow() throws Exception {
+    void dashboard_scopesRunAndTokenQueriesToTheClampedWindow() throws Exception {
         stubKpiCounts();
 
-        mvc.perform(get("/?days=999")).andExpect(status().isOk());
-
-        // The unknown range falls back to 14, and the token queries must use that
-        // same clamped value rather than the raw request parameter.
-        verify(dashboardStats).tokenUsage(14);
-        verify(dashboardStats).stepTokens(14);
-    }
-
-    @Test
-    void dashboard_clampsUnknownDaysToDefault() throws Exception {
-        stubKpiCounts();
-
-        mvc.perform(get("/").param("days", "999"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("dashboard"))
+        mvc.perform(get("/?days=999")).andExpect(status().isOk()).andExpect(view().name("dashboard"))
                 .andExpect(model().attribute("days", 14));
+        mvc.perform(get("/?days=abc")).andExpect(status().isOk()).andExpect(model().attribute("days", 14));
+
+        // An unknown range falls back to 14, and the run and token queries must use that
+        // same clamped value rather than the raw request parameter.
+        verify(dashboardStats, org.mockito.Mockito.times(2)).countByState(14);
+        verify(dashboardStats, org.mockito.Mockito.times(2)).tokenUsage(14);
+        verify(dashboardStats, org.mockito.Mockito.times(2)).stepTokens(14);
+    }
+
+    @Test
+    void dashboard_showsWhatTheDeveloperFlowSpentInTheChosenPeriodOnlyWhenARunStartedInIt() throws Exception {
+        stubKpiCounts();
+        var since = ArgumentCaptor.forClass(java.time.Instant.class);
+        var spent = new Statistics.Spent("$1.90", "1 run has no price");
+        when(statisticsRows.spentSince(since.capture())).thenReturn(Optional.of(spent), Optional.empty());
+
+        mvc.perform(get("/").param("days", "30")).andExpect(model().attribute("developerSpent", spent));
+        mvc.perform(get("/")).andExpect(model().attributeDoesNotExist("developerSpent"));
+
+        // The line counts the runs that started in the period, as the run tiles count runs.
+        assertThat(java.time.Duration.between(since.getAllValues().get(0), java.time.Instant.now()).toDays())
+                .isEqualTo(30);
+        assertThat(java.time.Duration.between(since.getAllValues().get(1), java.time.Instant.now()).toDays())
+                .isEqualTo(14);
     }
 
     @Test
@@ -177,6 +181,7 @@ class DashboardUiControllerTest {
         mvc.perform(get("/").param("days", "30"))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("days", 30));
+        verify(dashboardStats).countByState(30);
     }
 
     @Test
@@ -200,18 +205,40 @@ class DashboardUiControllerTest {
         assertThat(engine.get("leaseTimeoutSeconds")).isEqualTo(1800L);
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> connectors =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("connectors");
-        assertThat(connectors).extracting(c -> c.get("name")).containsExactly("github", "jira");
-        assertThat(connectors).extracting(c -> c.get("configured")).containsExactly(false, true);
+        var connectors = (List<DashboardUiController.ConnectorRow>) result.getModelAndView().getModel()
+                .get("connectors");
+        assertThat(connectors).extracting(DashboardUiController.ConnectorRow::name).containsExactly("github", "jira");
+        assertThat(connectors).extracting(DashboardUiController.ConnectorRow::configured).containsExactly(false, true);
+        assertThat(connectors.getFirst().note()).contains("advisory mode");
+        assertThat(connectors.get(1).note()).isNull();
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> flows =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("flows");
-        assertThat(flows).hasSize(1);
-        assertThat(flows.get(0).get("id")).isEqualTo("test-factory");
-        assertThat(flows.get(0).get("name")).isEqualTo("Test Factory");
-        assertThat(flows.get(0).get("version")).isEqualTo("1.0.0");
+        var flows = (List<DashboardUiController.FlowRow>) result.getModelAndView().getModel().get("flows");
+        assertThat(flows).containsExactly(
+                new DashboardUiController.FlowRow("test-factory", "Test Factory", "1.0.0", null, "/flows/test-factory"));
+    }
+
+    @Test
+    void status_jiraWithoutSignIn_saysThatMyTasksStillReadsIt() throws Exception {
+        var jira = new FakeConnector("jira", false);
+        when(flowRegistry.all()).thenReturn(List.of(
+                new FlowDescriptor("dev-factory", "Developer Flow", "0.9.0", null, null, null, null, null)));
+        when(flowRegistryEntries.findById(any())).thenReturn(java.util.Optional.empty());
+
+        var result = mvcWithConnectors(List.of(jira)).perform(get("/status")).andExpect(status().isOk()).andReturn();
+
+        @SuppressWarnings("unchecked")
+        var connectors = (List<DashboardUiController.ConnectorRow>) result.getModelAndView().getModel()
+                .get("connectors");
+        assertThat(connectors).singleElement().satisfies(row -> {
+            assertThat(row.note()).startsWith("Not configured for Test Factory sync")
+                    .contains("My tasks reads Jira with FACTORY_CONNECTORS_JIRA_BASE_URL alone");
+            assertThat(row.configurationUrl()).isEqualTo("/developer/configuration");
+        });
+        @SuppressWarnings("unchecked")
+        var flows = (List<DashboardUiController.FlowRow>) result.getModelAndView().getModel().get("flows");
+        assertThat(flows).extracting(DashboardUiController.FlowRow::url)
+                .containsExactly("/flows/dev-factory?view=definition");
     }
 
     @Test
@@ -241,10 +268,12 @@ class DashboardUiControllerTest {
                 .andReturn();
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> connectors =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("connectors");
-        assertThat(connectors).extracting(c -> c.get("name")).containsExactly("github", "jira", "testrail");
-        assertThat(connectors).extracting(c -> c.get("configured")).containsExactly(false, true, true);
+        var connectors = (List<DashboardUiController.ConnectorRow>) result.getModelAndView().getModel()
+                .get("connectors");
+        assertThat(connectors).extracting(DashboardUiController.ConnectorRow::name)
+                .containsExactly("github", "jira", "testrail");
+        assertThat(connectors).extracting(DashboardUiController.ConnectorRow::configured)
+                .containsExactly(false, true, true);
     }
 
     @Test
@@ -326,7 +355,6 @@ class DashboardUiControllerTest {
                 (List<Map<String, Object>>) result.getModelAndView().getModel().get("events");
         assertThat(events).hasSize(1);
         Map<String, Object> row = events.get(0);
-        assertThat(row.get("eventType")).isEqualTo("STEP_COMPLETED");
         assertThat(row.get("eventLabel")).isEqualTo("Step completed");
         assertThat(row.get("eventTone")).isNull();
         assertThat(row.get("executionId")).isEqualTo(executionId);

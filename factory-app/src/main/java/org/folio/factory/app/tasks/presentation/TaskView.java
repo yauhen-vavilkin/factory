@@ -1,0 +1,100 @@
+package org.folio.factory.app.tasks.presentation;
+
+import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * One logical task as the task screens read it: identity and Jira link,
+ * the current projected state with reason and stage, delivery identity, the
+ * full attempt history with per-attempt accounting, and the controls the
+ * current state allows. A pure projection — every action is revalidated by its
+ * own service at submit time.
+ */
+public record TaskView(
+        UUID taskId,
+        String displayKey,
+        String jiraUrl,
+        String title,
+        String projectKey,
+        String jiraStatus,
+        TaskState state,
+        Integer queuePosition,
+        String reason,
+        String stage,
+        Instant stageStartedAt,
+        String destinationRepository,
+        String pullRequestUrl,
+        List<String> draftReasons,
+        boolean inScope,
+        boolean addedByKey,
+        long version,
+        String inputFingerprint,
+        String destinationFingerprint,
+        List<AttemptHistoryEntry> attempts,
+        TaskUsage usage,
+        AllowedActions allowedActions) {
+
+    /**
+     * The attempt the task's state stands for: the last one that was not withdrawn, as the task projection picks
+     * it, or the last one when all were withdrawn; empty before the first attempt.
+     */
+    public Optional<AttemptHistoryEntry> standingAttempt() {
+        return attempts.reversed().stream()
+                .filter(attempt -> attempt.state() != TaskAttempt.State.WITHDRAWN)
+                .findFirst()
+                .or(() -> attempts.isEmpty() ? Optional.empty() : Optional.of(attempts.getLast()));
+    }
+
+    /** The last attempt stopped because the agent asked a question. */
+    public boolean needsAnswer() {
+        return state == TaskState.STOPPED && TaskStops.asksForAnswer(reason);
+    }
+
+    /**
+     * Distinct current meanings: not yet delegated, pulled before start,
+     * unroutable, work in flight, finished unsuccessfully, held with an
+     * unresolved question, delivered, or held by the shared installation pause.
+     */
+    public enum TaskState {
+        AWAITING_SELECTION, WITHDRAWN, UNSUPPORTED, WORKING, STOPPED, UNCERTAIN, PR_READY, PROCESSING_PAUSED
+    }
+
+    public record AttemptHistoryEntry(
+            UUID attemptId,
+            int ordinal,
+            TaskAttempt.Kind kind,
+            TaskAttempt.AdmittedVia admittedVia,
+            TaskAttempt.State state,
+            String stage,
+            String reason,
+            String pullRequestUrl,
+            List<String> draftReasons,
+            UUID executionId,
+            Instant createdAt,
+            Instant startedAt,
+            boolean paidStart,
+            long activeSeconds,
+            TaskUsage usage,
+            String runSettings) {
+
+        /** This attempt stopped because the agent asked a question. */
+        public boolean asked() {
+            return state == TaskAttempt.State.STOPPED && TaskStops.asksForAnswer(reason);
+        }
+    }
+
+    /**
+     * Projected from the same state facts the admission and retry services
+     * revalidate: selection is possible only for a never-attempted or
+     * all-withdrawn task in My tasks, Retry only for a stopped latest attempt or
+     * a withdrawal after earlier real work. Fingerprint drift and stale versions
+     * are still rejected by the services on submit.
+     */
+    public record AllowedActions(boolean select, boolean retry) {
+    }
+}

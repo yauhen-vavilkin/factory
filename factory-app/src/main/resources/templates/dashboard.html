@@ -5,43 +5,24 @@
 <section class="page-body">
     <div class="page-header">
         <h1>Dashboard</h1>
-        <p class="page-description">Pipeline throughput, execution outcomes, and review load across the factory.</p>
+        <p class="page-description">What the runs started in the chosen period came to. Runs, tokens, step failures
+            and connector actions count only those runs; Reviews also shows what waits for a person now.</p>
     </div>
 
-    <nav class="tabs" aria-label="Time range">
-        <a th:each="d : ${ {1, 7, 14, 30, 90} }" th:href="@{/(days=${d})}"
-           th:text="${d == 1 ? '24h' : d + 'd'}"
-           th:attrappend="aria-current=${d == days} ? 'page'">14d</a>
+    <nav class="tabs" aria-label="Period">
+        <a th:each="p : ${periods}" th:href="@{/(days=${p.days()})}" th:text="${p.label()}"
+           th:attrappend="aria-current=${p.days() == days} ? 'page'">14 days</a>
     </nav>
 
     <div class="kpi-grid">
-        <div class="kpi">
-            <span class="kpi-value" th:text="${totalExecutions}">0</span>
-            <span class="kpi-label">Total executions</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${completedCount}">0</span>
-            <span class="kpi-label">Completed</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${awaitingHitlCount}">0</span>
-            <span class="kpi-label">Awaiting review</span>
-            <span class="kpi-trend" th:text="${pendingReviews} + ' pending HITL reviews'">0 pending HITL reviews</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${failedCount}">0</span>
-            <span class="kpi-label">Failed / escalated</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${cancelledCount + rejectedCount}">0</span>
-            <span class="kpi-label">Cancelled / rejected</span>
-            <span class="kpi-trend"
-                  th:text="${cancelledCount} + ' cancelled · ' + ${rejectedCount} + ' rejected'">0 cancelled · 0 rejected</span>
-        </div>
+        <a class="kpi" th:each="tile : ${runTiles}" th:href="${tile.url()}">
+            <span class="kpi-value" th:text="${tile.count()}">0</span>
+            <span class="kpi-label" th:text="${tile.label()}">Total runs</span>
+        </a>
         <div class="kpi">
             <span class="kpi-value">
-                <span class="badge badge-success" th:if="${engineEnabled}">Running</span>
-                <span class="badge badge-muted" th:unless="${engineEnabled}">Disabled</span>
+                <span class="chip chip-success" th:if="${engineEnabled}">Running</span>
+                <span class="chip chip-neutral" th:unless="${engineEnabled}">Disabled</span>
             </span>
             <span class="kpi-label">Execution engine</span>
         </div>
@@ -56,35 +37,42 @@
         </div>
     </div>
 
+    <div class="dash-developer" th:if="${developerSpent != null}">
+        <span class="src">Developer Flow</span>
+        <span><strong class="dash-developer-spent" th:title="${developerSpent.unpricedNote()}"
+                th:text="${developerSpent.amount()}">$16.46</strong> spent</span>
+        <a class="btn btn-secondary btn-sm" th:href="@{/developer/statistics(days=${days})}">Statistics</a>
+    </div>
+
     <div class="charts-grid" th:attr="data-days=${days}">
         <div class="chart-card card" data-chart="chart-executions">
-            <div class="card-header"><h2 class="card-title">Executions over time</h2></div>
+            <div class="card-header"><h2 class="card-title">Runs started per day, by state</h2></div>
             <div class="card-content">
                 <div class="chart-region">
                     <canvas id="chart-executions" role="img"
-                            aria-label="Stacked bar chart of executions per day by terminal status"></canvas>
+                            aria-label="Stacked bar chart of the runs started per day, by what each run came to"></canvas>
                 </div>
                 <p class="empty-state" data-empty hidden>No data in this range.</p>
             </div>
         </div>
 
         <div class="chart-card card" data-chart="chart-status-mix">
-            <div class="card-header"><h2 class="card-title">Current status mix</h2></div>
+            <div class="card-header"><h2 class="card-title">Runs by state</h2></div>
             <div class="card-content">
                 <div class="chart-region">
                     <canvas id="chart-status-mix" role="img"
-                            aria-label="Doughnut chart of current executions by status"></canvas>
+                            aria-label="Doughnut chart of the runs started in this period, by state"></canvas>
                 </div>
                 <p class="empty-state" data-empty hidden>No data in this range.</p>
             </div>
         </div>
 
         <div class="chart-card card" data-chart="chart-throughput">
-            <div class="card-header"><h2 class="card-title">Throughput by flow</h2></div>
+            <div class="card-header"><h2 class="card-title">Runs per flow</h2></div>
             <div class="card-content">
                 <div class="chart-region">
                     <canvas id="chart-throughput" role="img"
-                            aria-label="Horizontal bar chart of total executions per flow"></canvas>
+                            aria-label="Horizontal bar chart of the runs started in this period, per flow"></canvas>
                 </div>
                 <p class="empty-state" data-empty hidden>No data in this range.</p>
             </div>
@@ -92,15 +80,16 @@
 
         <div class="chart-card card">
             <div class="card-header">
-                <h2 class="card-title">HITL review latency</h2>
-                <p class="card-description">Human-in-the-loop gate load and decision timing.</p>
+                <h2 class="card-title">Reviews</h2>
+                <p class="card-description">How many reviews wait for a person now and for how long, and how fast
+                    the reviews of this period were decided.</p>
             </div>
             <div class="card-content">
                 <dl class="def-list">
-                    <dt>Pending</dt><dd id="hitl-pending">—</dd>
-                    <dt>Avg decision time</dt><dd id="hitl-avg">—</dd>
-                    <dt>Oldest pending</dt><dd id="hitl-oldest">—</dd>
-                    <dt>Decided in window</dt><dd id="hitl-decided">—</dd>
+                    <dt>Waiting now</dt><dd id="hitl-pending">—</dd>
+                    <dt>Longest wait now</dt><dd id="hitl-oldest">—</dd>
+                    <dt>Decided in this period</dt><dd id="hitl-decided">—</dd>
+                    <dt>Average time to a decision</dt><dd id="hitl-avg">—</dd>
                 </dl>
             </div>
         </div>
@@ -130,22 +119,22 @@
         <div class="chart-card card grid-span-full">
             <div class="card-header">
                 <h2 class="card-title">Token spend by step</h2>
-                <p class="card-description">Where LLM tokens go across flows in this range.</p>
+                <p class="card-description">Where the tokens of these runs went, by flow and step.</p>
             </div>
             <div class="card-content">
                 <p class="empty-state" th:if="${#lists.isEmpty(stepTokens)}">No token usage in this range.</p>
                 <div class="table-wrap" th:unless="${#lists.isEmpty(stepTokens)}">
                     <table>
                         <thead>
-                        <tr><th>Flow</th><th>Step</th><th>Prompt</th><th>Completion</th><th>Total</th></tr>
+                        <tr><th>Flow</th><th>Step</th><th>Tokens in</th><th>Tokens out</th><th>Total</th></tr>
                         </thead>
                         <tbody>
                         <tr th:each="t : ${stepTokens}">
-                            <td th:text="${t['flowId']}"></td>
-                            <td th:text="${t['stepId']}"></td>
-                            <td class="muted" th:text="${t['prompt']}"></td>
-                            <td class="muted" th:text="${t['completion']}"></td>
-                            <td th:text="${t['total']}"></td>
+                            <td class="nowrap" th:text="${t.flow()}"></td>
+                            <td th:text="${t.step()}"></td>
+                            <td class="muted" th:text="${t.tokensIn()}"></td>
+                            <td class="muted" th:text="${t.tokensOut()}"></td>
+                            <td th:text="${t.total()}"></td>
                         </tr>
                         </tbody>
                     </table>

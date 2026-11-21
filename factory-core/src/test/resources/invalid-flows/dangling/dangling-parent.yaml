@@ -1,0 +1,12 @@
+id: dangling-parent
+name: Dangling Parent
+version: 1.0.0
+agent_chain:
+  - step_id: work
+    type: AGENT
+    worker_id: echo-worker
+    outputs: [doc.md]
+  - step_id: delegate
+    type: SUB_FLOW
+    sub_flow:
+      flow_id: no-such-child

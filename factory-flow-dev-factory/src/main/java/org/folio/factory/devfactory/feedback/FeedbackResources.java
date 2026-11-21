@@ -3,6 +3,8 @@ package org.folio.factory.devfactory.feedback;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 import static org.folio.factory.devfactory.feedback.FeedbackState.Phase.INIT;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.service.AuditLog;
@@ -15,14 +17,10 @@ import java.util.UUID;
 /**
  * Reconciles only execution-owned workloads, retaining cleanup uncertainty for the next invocation.
  */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class FeedbackResources {
     private final AuditLog audit;
     private final DockerWorkloads docker;
-
-    FeedbackResources(AuditLog audit, DockerWorkloads docker) {
-        this.audit = audit;
-        this.docker = docker;
-    }
 
     void reconcile(AgentContext context, FeedbackState state) {
         var starts =

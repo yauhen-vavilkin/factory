@@ -8,15 +8,21 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.*;
 
 public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
+    /** A GitHub {@code owner/name} repository. */
+    static final String REPOSITORY = "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+";
     private final RestClient client;
     private final JsonMapper json = JsonMapper.builder().build();
     public GitHubPrFeedbackGateway(GitHubProperties properties, RestClient.Builder builder) {
-        client = builder.baseUrl(properties.effectiveBaseUrl())
+        client = restClient(properties, builder);
+    }
+    /** A GitHub REST client authenticated with the configured token. */
+    static RestClient restClient(GitHubProperties properties, RestClient.Builder builder) {
+        return builder.baseUrl(properties.effectiveBaseUrl())
                 .defaultHeader("Authorization", "Bearer " + properties.token())
                 .defaultHeader("Accept", "application/vnd.github+json").build();
     }
     public PullRequest read(String repository, int number) {
-        if (!repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") || number < 1)
+        if (!repository.matches(REPOSITORY) || number < 1)
             throw new IllegalArgumentException("Invalid PR identity");
         var node = get("/repos/" + repository + "/pulls/" + number);
         if (!repository.equals(node.path("head").path("repo").path("full_name").asString(""))
@@ -32,7 +38,7 @@ public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
         if (previous == null) throw new IllegalArgumentException("No delivered PR is available");
         String repository = previous.repository();
         int number = previous.number();
-        if (!repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") || number < 1)
+        if (!repository.matches(REPOSITORY) || number < 1)
             throw new IllegalArgumentException("Invalid PR identity");
         var node = get("/repos/" + repository + "/pulls/" + number);
         if (!repository.equals(node.path("base").path("repo").path("full_name").asString(""))
@@ -56,7 +62,8 @@ public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
         collect("/repos/" + pr.repository() + "/pulls/" + pr.number() + "/reviews", "review", comments);
         collect("/repos/" + pr.repository() + "/pulls/" + pr.number() + "/comments", "inline", comments);
         comments.sort(Comparator.comparing(Comment::id));
-        return new Snapshot(ArtifactStore.sha256(json.writeValueAsString(List.of(pr, comments))), pr, List.copyOf(comments));
+        return new Snapshot(ArtifactStore.sha256(json.writeValueAsString(List.of(pr, comments))), pr,
+                List.copyOf(comments));
     }
     private void collect(String path, String kind, List<Comment> result) {
         for (int page = 1; ; page++) {
@@ -65,11 +72,13 @@ public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
             if (!nodes.isArray()) throw new IllegalStateException("Invalid GitHub comments response");
             for (var n : nodes) {
                 String body = n.path("body").asString("");
-                if (body.isBlank()) continue;
-                result.add(new Comment(kind + ":" + n.path("id").asString(""), n.path("user").path("login").asString(""),
+                if (body.isBlank() || body.stripLeading().startsWith(RoundComment.MARKER)) continue;
+                result.add(new Comment(kind + ":" + n.path("id").asString(""),
+                        n.path("user").path("login").asString(""),
                         body, n.path("path").asString(""), n.path("line").isNumber() ? n.path("line").asInt() : null,
                         kind.equals("inline") && n.path("position").isNull(),
-                        n.path("updated_at").asString(n.path("submitted_at").asString("")), n.path("html_url").asString("")));
+                        n.path("updated_at").asString(n.path("submitted_at").asString("")),
+                        n.path("html_url").asString("")));
             }
             if (nodes.size() < 100) return;
         }

@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.candidate;
 
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.runtime.Toolchain;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -28,7 +29,7 @@ class CandidateFreezerTest {
         Files.writeString(source.resolve("target/noise"), "exclude build output");
         Files.writeString(source.resolve("ignored.secret"), "must not be staged");
         var freezer = new CandidateFreezer();
-        Candidate candidate = freezer.freeze("fixture", source.toString(), base, source);
+        Candidate candidate = freezer.freeze("fixture", source.toString(), base, source, false);
         assertThat(candidate.patch()).contains("GIT binary patch", "deleted file mode", "new mode 100755")
                 .doesNotContain("target/noise", "ignored.secret");
         Path reconstructed = freezer.reconstruct(source.toString(), candidate);
@@ -52,8 +53,8 @@ class CandidateFreezerTest {
         String base = CandidateFreezer.git(source, "rev-parse", "HEAD").strip();
         Files.writeString(source.resolve("ignored.txt"), "generated residue");
 
-        assertThatThrownBy(() -> new CandidateFreezer().freeze("fixture", source.toString(), base, source))
-                .hasMessageContaining("no changes");
+        assertThatThrownBy(() -> new CandidateFreezer().freeze("fixture", source.toString(), base, source, false))
+                .hasMessage(TaskStops.NO_CHANGES_REASON);
     }
 
     @Test void yarnCandidatesNeverCarryUntrackedBuildOutputOrLockfilesButKeepNestedSources() throws Exception {
@@ -92,7 +93,7 @@ class CandidateFreezerTest {
         Files.createDirectories(source.resolve("artifacts"));
         Files.writeString(source.resolve("artifacts/Note.txt"), "a new source directory\n");
 
-        Candidate candidate = new CandidateFreezer().freeze("fixture", source.toString(), base, source);
+        Candidate candidate = new CandidateFreezer().freeze("fixture", source.toString(), base, source, false);
 
         assertThat(candidate.patch()).contains("artifacts/Note.txt");
     }

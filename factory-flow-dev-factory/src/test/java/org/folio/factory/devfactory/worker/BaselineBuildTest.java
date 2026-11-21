@@ -19,14 +19,14 @@ import static org.mockito.Mockito.when;
 
 class BaselineBuildTest {
     private final DevRuntimeProperties runtime = new DevRuntimeProperties(
-            Map.of("jest", List.of("yarn", "test")), null, 60, null, Map.of(), Map.of("jest", Toolchain.YARN));
+            Map.of("jest", List.of("yarn", "test")), null, 60, null, Map.of(), Map.of("jest", Toolchain.YARN), null, 0);
     private final DevFactoryProperties.Repository repository = new DevFactoryProperties.Repository(
-            "owner/ui", "master", "node:image", "jest", List.of("T"), List.of());
+            "owner/ui", "master", "node:image", "jest", List.of("T"), List.of(), null);
 
     private Map<String, Object> readiness(Processes.Result result) {
         var baseline = mock(DockerWorkloads.Workload.class);
         when(baseline.executeKeepingTail(any(), anyInt(), anyInt(), any())).thenReturn(result);
-        return new BaselineBuild(runtime).run(baseline, "a".repeat(40), repository, InstallMode.FROZEN, progress -> { })
+        return new BaselineBuild(runtime).run(baseline, "a".repeat(40), repository, InstallMode.FROZEN, 60, progress -> { })
                 .readiness();
     }
 

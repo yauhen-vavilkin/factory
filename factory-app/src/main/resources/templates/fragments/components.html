@@ -2,8 +2,19 @@
 <html xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
 
-<span th:fragment="statusBadge(status)" class="badge"
-      th:classappend="'badge-status-' + ${status}" th:text="${status}">STATUS</span>
+<!-- An engine or review status in the chip shape of the Developer Flow pages; app.css gives each status its tone. -->
+<span th:fragment="statusBadge(status)" class="chip"
+      th:classappend="'chip-status-' + ${status}" th:text="${status}">STATUS</span>
+
+<!-- An absolute time (PageTime) in UTC; time.js rewrites it to the browser's local time. Nothing when null. -->
+<time th:fragment="pageTime(at)" th:if="${at != null}"
+      th:attr="datetime=${at.datetime()}, data-local=${at.local()}, title=${at.title()}"
+      th:text="${at.text()}">2026-11-10 22:42:07 UTC</time>
+
+<!-- A relative time ("5 min ago") whose title time.js rewrites to the local time; plain text without a time. -->
+<th:block th:fragment="ago(text, at)"><time th:if="${at != null}"
+        th:attr="datetime=${at.datetime()}, data-local='ago', title=${at.title()}" th:text="${text}">5 min
+    ago</time><span th:if="${at == null}" th:text="${text}">never</span></th:block>
 
 <nav th:fragment="pagination(page, baseUrl)" class="pagination" aria-label="Pagination"
      th:if="${page != null}">
@@ -41,7 +52,7 @@
         </thead>
         <tbody>
         <tr th:each="ev : ${events}">
-            <td th:text="${ev['occurredAt']}"></td>
+            <td><time th:replace="~{fragments/components :: pageTime(${ev['occurredAt']})}"></time></td>
             <td th:if="${showExecution}">
                 <a th:if="${ev['executionId']}" th:href="@{'/executions/' + ${ev['executionId']}}"
                    th:text="${ev['executionShort']}"></a>
@@ -55,7 +66,7 @@
             <td><span th:if="${ev['actor']}" th:text="${ev['actor']}"></span>
                 <span th:unless="${ev['actor']}" class="muted">—</span></td>
             <td>
-                <details class="details-inline" th:if="${ev['detail']}">
+                <details class="disclosure" th:if="${ev['detail']}">
                     <summary>View</summary>
                     <pre class="code-block" th:text="${ev['detail']}"></pre>
                 </details>
@@ -77,7 +88,7 @@
         <div class="step-body">
             <span class="step-label" th:text="${s['label']}"></span>
             <span class="sr-only" th:text="${s['state']}"></span>
-            <span class="step-sublabel" th:if="${s['sublabel']}" th:attr="data-elapsed-start=${s['elapsedStart']}" th:text="${s['sublabel']}"></span>
+            <span class="step-sublabel" th:if="${s['sublabel']}" th:text="${s['sublabel']}"></span>
             <span class="badge badge-destructive badge-sm"
                   th:if="${s['attempts'] != null and s['attempts'] > 0}"
                   th:text="'retry ×' + ${s['attempts']}"></span>

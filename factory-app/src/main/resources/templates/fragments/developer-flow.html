@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+
+<th:block th:fragment="header(flow, tab)">
+    <header class="dev-header">
+        <h1 class="dev-title" th:text="${flow['name']}">Developer Flow</h1>
+        <nav class="dev-tabs" aria-label="Flow views">
+            <a th:href="@{/flows/dev-factory}" th:attrappend="aria-current=${tab == 'tasks'} ? 'page'">My tasks</a>
+            <a th:href="@{/developer/statistics}"
+               th:attrappend="aria-current=${tab == 'statistics'} ? 'page'">Statistics</a>
+            <a th:href="@{/flows/dev-factory(view='definition')}"
+               th:attrappend="aria-current=${tab == 'definition'} ? 'page'">Definition</a>
+            <a th:href="@{/developer/configuration}"
+               th:attrappend="aria-current=${tab == 'configuration'} ? 'page'">Configuration</a>
+        </nav>
+    </header>
+</th:block>
+
+<!-- The Model of a run form: only models that can run now. With one, the list is hidden and the form sends its
+     id; with none, the reason shows instead. Each option carries its efforts for the page script, which rebuilds
+     the Effort choices when the model changes. -->
+<th:block th:fragment="modelChoice(form)">
+    <label class="run-setting" th:if="${form.modelListShown()}">
+        <span>Model</span>
+        <select class="select select-sm" name="modelId" data-model-select>
+            <option th:each="model : ${form.models()}" th:value="${model.id()}" th:text="${model.id()}"
+                    th:selected="${model.id() == form.selected().id()}"
+                    th:attr="data-efforts=${model.effortList()}, data-default-effort=${model.defaultEffort()}">
+                model</option>
+        </select>
+    </label>
+    <input type="hidden" name="modelId" th:if="${form.selected() != null and !form.modelListShown()}"
+           th:value="${form.selected().id()}">
+    <span class="run-setting-problem" th:if="${form.problem() != null}" th:text="${form.problem()}">No model.</span>
+</th:block>
+
+<!-- Model and Effort of the next attempt on the task page. -->
+<th:block th:fragment="runChoice(form)">
+    <th:block th:insert="~{fragments/developer-flow :: modelChoice(${form})}"></th:block>
+    <div class="run-setting" th:if="${form.selected() != null}">
+        <span>Effort</span>
+        <th:block th:insert="~{fragments/developer-flow :: effortChoice(${form.selected()}, ${form.effort()}, 'effort', 'Effort', false)}"></th:block>
+    </div>
+</th:block>
+
+<!-- Effort as radio buttons, one per level of the model, so it works without the page script and with the
+     keyboard. -->
+<div th:fragment="effortChoice(model, current, name, label, small)" class="effort-toggle"
+     th:classappend="${small} ? 'effort-toggle-sm'" role="radiogroup" data-effort-toggle
+     th:attr="aria-label=${label}, data-effort-name=${name}">
+    <label th:each="effort : ${model.efforts()}">
+        <input type="radio" th:name="${name}" th:value="${effort}" th:checked="${effort == current}">
+        <span th:text="${effort}">high</span>
+    </label>
+</div>
+
+
+<!-- A status chip: a pull request chip links to the pull request. Takes any row or card with chipLabel(),
+     chipClass() and chipUrl(). -->
+<th:block th:fragment="statusChip(status)"><a th:if="${status.chipUrl() != null}"
+        th:class="${status.chipClass()} + ' ext-link'" th:href="${status.chipUrl()}"
+        th:text="${status.chipLabel()}">Draft PR #6</a><span th:if="${status.chipUrl() == null}"
+        th:class="${status.chipClass()}" th:text="${status.chipLabel()}">In progress</span></th:block>
+
+<!-- Why the pull request is a draft, the same on the task page and the run page. -->
+<div th:fragment="draftReasons(reasons)" class="status-card-reasons"
+     th:if="${reasons != null and !#lists.isEmpty(reasons)}">
+    <p>The pull request was opened as a draft because:</p>
+    <ul>
+        <li th:each="reason : ${reasons}" th:text="${reason}">reason</li>
+    </ul>
+</div>
+
+<!-- The time of an attempt (AttemptClock): it ticks while the attempt works, and names the step's limit. -->
+<span th:fragment="clock(clock)" th:if="${clock != null}" th:title="${clock.title()}"><span
+        class="status-card-money" th:attr="data-elapsed-start=${clock.start()}" th:text="${clock.time()}">5 min</span>
+    <span class="status-card-note" th:if="${clock.limit() != null}" th:text="${clock.limit()}">of 30 min</span></span>
+
+<!-- Activity and Usage of a run: side by side while the run has no PR, then each in its own fold. -->
+    <div class="run-columns" th:fragment="runColumns(activity, usage, transcriptUrl)">
+        <th:block th:replace="~{fragments/developer-flow :: activity(${activity}, ${transcriptUrl})}"></th:block>
+        <th:block th:replace="~{fragments/developer-flow :: usage(${usage})}"></th:block>
+    </div>
+
+        <section class="dev-list run-activity" aria-labelledby="activity-title" th:fragment="activity(activity, transcriptUrl)">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="activity-title">Activity <span class="dev-count"
+                        th:text="${activity.total()}">0</span></h2>
+                <a class="dev-list-tools" th:unless="${#lists.isEmpty(activity.rows())}" th:href="${transcriptUrl}">Full transcript</a>
+            </div>
+            <p class="dev-empty" th:if="${#lists.isEmpty(activity.rows())}">No activity reported yet.</p>
+            <div class="activity-row" th:each="row, state : ${activity.rows()}"
+                 th:attr="data-tone=${row.toneName()}, data-earlier=${activity.hiddenAt(state.index)} ? 'true' : null"
+                 th:hidden="${activity.hiddenAt(state.index)}">
+                <time th:replace="~{fragments/components :: pageTime(${row.time()})}">17:53:12</time>
+                <span class="activity-verb" th:text="${row.verb()}">Ran</span>
+                <code class="activity-target" th:if="${row.code()}" th:title="${row.target()}"
+                      th:text="${row.target()}">mvn test</code>
+                <span class="activity-target" th:unless="${row.code()}" th:title="${row.target()}"
+                      th:text="${row.target()}">Coding agent started</span>
+                <span class="activity-result" th:text="${row.result()}">took 9 ms</span>
+            </div>
+            <div class="dev-list-foot" th:if="${activity.earlier() > 0}">
+                <button type="button" class="btn btn-secondary btn-sm" data-show-earlier
+                        th:text="'Show ' + ${activity.earlier()} + ' earlier'">Show 35 earlier</button>
+            </div>
+            <p class="dev-note" th:if="${activity.notice() != null}" th:text="${activity.notice()}">notice</p>
+        </section>
+        <section class="dev-list run-usage" aria-labelledby="usage-title" th:fragment="usage(usage)">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="usage-title" th:text="${usage.title()}">Usage</h2>
+            </div>
+            <p class="dev-empty" th:unless="${usage.reported()}">No usage reported yet.</p>
+            <dl class="usage-figures" th:if="${usage.reported()}">
+                <th:block th:each="figure : ${usage.figures()}"><dt th:text="${figure.label()}">Input</dt><dd
+                        th:text="${figure.value()}">0</dd></th:block>
+                <th:block th:if="${usage.total() != null}"><dt>Total tokens</dt><dd
+                        th:text="${usage.total()}">0</dd></th:block>
+                <th:block th:if="${usage.cost() != null}"><dt class="usage-total">Estimated cost</dt><dd
+                        class="usage-total" th:text="${usage.cost()}">$0.00</dd></th:block>
+            </dl>
+            <p class="dev-note" th:if="${usage.note() != null}" th:text="${usage.note()}">note</p>
+        </section>
+</body>
+</html>

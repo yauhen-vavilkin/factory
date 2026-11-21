@@ -26,6 +26,12 @@ public final class PreparedWorkspace {
 
     public static Result prepare(DockerWorkloads.Workload workload, DevRuntimeProperties runtime, String plan,
                                  InstallMode mode, Consumer<Map<String, Object>> progress) {
+        return prepare(workload, runtime, plan, mode, runtime.timeoutSeconds(), progress);
+    }
+
+    /** {@code timeoutSeconds} lets a task run cut the install to what is left of its time. */
+    public static Result prepare(DockerWorkloads.Workload workload, DevRuntimeProperties runtime, String plan,
+                                 InstallMode mode, int timeoutSeconds, Consumer<Map<String, Object>> progress) {
         var install = runtime.installCommand(plan, mode);
         if (install.isEmpty()) return new Result(false, false, null);
         var toolchain = runtime.toolchain(plan);
@@ -33,7 +39,7 @@ public final class PreparedWorkspace {
         Instant started = Instant.now();
         Processes.Result result;
         try {
-            result = workload.execute(install, runtime.timeoutSeconds());
+            result = workload.execute(install, timeoutSeconds, Processes.OUTPUT_LIMIT, null);
         } catch (IllegalStateException e) {
             // Transport failure has no exit status; report it like a failed install.
             result = new Processes.Result(-1, Objects.toString(e.getMessage(), "Install failed without a diagnostic"));

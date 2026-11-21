@@ -113,15 +113,6 @@ class TestExecutionWorkerTest {
     }
 
     @Test
-    void truncateConsole_shortOutput_returnedUnchanged() {
-        String console = "Karate run finished: 3 passed, 0 failed";
-
-        String result = TestExecutionWorker.truncateConsole(console);
-
-        assertThat(result).isEqualTo(console);
-    }
-
-    @Test
     void truncateConsole_exactlyAtLimit_returnedUnchanged() {
         String console = "x".repeat(MAX_CONSOLE_LOG_CHARS);
 

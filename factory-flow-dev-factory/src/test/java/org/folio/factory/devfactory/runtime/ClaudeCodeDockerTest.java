@@ -38,8 +38,8 @@ class ClaudeCodeDockerTest {
 
     @AfterEach void cleanup() {
         assertThat(Processes.run(null, List.of("docker", "ps", "-aq", "--filter",
-                "label=factory.dev-execution=" + executionId), 30).requireSuccess().output()).isBlank();
-        Processes.run(null, List.of("docker", "volume", "rm", volume), 30);
+                "label=factory.dev-execution=" + executionId), 30, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess().output()).isBlank();
+        Processes.run(null, List.of("docker", "volume", "rm", volume), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
     }
 
     @ParameterizedTest @ValueSource(strings = {"sonnet", "opus", "haiku", "fable", "best", "default", "opusplan",
@@ -49,8 +49,8 @@ class ClaudeCodeDockerTest {
              var scope = new DockerWorkloads().beginStep(executionId, "claude-literal-model");
              var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             mock.model = model;
-            var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
-                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60);
+            var outcome = runtime(mock, "api-key")
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.metrics()).containsEntry("model", model).doesNotContainKey("usageIncomplete");
             assertThat(mock.calls).hasSize(2).allSatisfy(call ->
@@ -69,18 +69,49 @@ class ClaudeCodeDockerTest {
         org.mockito.Mockito.when(jira.downloadAttachment(org.mockito.ArgumentMatchers.eq("1"), org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(png.toByteArray());
         var request = new CodingRequest("TASK-1", "Implement task", "Description", List.of(), List.of(), List.of(), List.of(),
-                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null,
+                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null, null,
                 List.of(new CodingRequest.Attachment("1", "noise.png", "image/png", png.size(), "", "")));
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-staged-image");
              var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             mock.tool = "Read";
             mock.toolInput = Map.of("file_path", "/tmp/factory-attachments/img-1.png");
-            var base = config(mock, "api-key");
-            var withImages = new DevRuntimeProperties.ClaudeCode(base.image(), base.api(), base.baseUrl(), base.model(),
-                    base.authentication(), base.apiKey(), base.authToken(), base.maxTurns(), base.maxOutputTokens(), null, true);
-            var outcome = new ImageStagingRuntime(new ClaudeCodeCodingRuntime(withImages), jira, new DevAttachmentProperties())
-                    .code(workload, request, 90);
+            var withImages = ClaudeCodeCodingRuntimeTest.runtime(IMAGE, mock.url(), mock.model, "api-key", 4,
+                    "example-secret", true);
+            var outcome = new ImageStagingRuntime(withImages, jira, new DevAttachmentProperties())
+                    .code(workload, request, 90, event -> {}, CodingTranscripts.NONE);
+            assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+            assertThat(mock.calls).hasSize(2);
+            assertThat(mock.calls.get(1).body.toString()).contains("\"type\":\"image\"").contains("base64");
+        }
+    }
+
+    /**
+     * Claude Code 2.1.287 puts an opened image twice in one output line. It shrinks a decodable image to at most
+     * 512,000 bytes, so that line stays near 1.4 MB, but it sends an image it cannot decode unchanged: for this
+     * 3.8 MB file the line is 10.1 MB, more than the 8 MiB limit of a run without images.
+     */
+    @Test void anImageTheCliCannotDecodeDoesNotBreakTheEventStream() throws Exception {
+        var broken = new byte[3_800_000];
+        new java.util.Random(5).nextBytes(broken);
+        byte[] header = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 13, 'I', 'H', 'D', 'R',
+                0, 0, 0x03, (byte) 0xe8, 0, 0, 0x03, (byte) 0xe8, 8, 2, 0, 0, 0};
+        System.arraycopy(header, 0, broken, 0, header.length);
+        var jira = org.mockito.Mockito.mock(org.folio.factory.connectors.jira.JiraConnector.class);
+        org.mockito.Mockito.when(jira.downloadAttachment(org.mockito.ArgumentMatchers.eq("1"), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(broken);
+        var request = new CodingRequest("TASK-1", "Implement task", "Description", List.of(), List.of(), List.of(), List.of(),
+                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null, null,
+                List.of(new CodingRequest.Attachment("1", "broken.png", "image/png", broken.length, "", "")));
+        try (var mock = new MessagesEndpoint(false, false);
+             var scope = new DockerWorkloads().beginStep(executionId, "claude-undecodable-image");
+             var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
+            mock.tool = "Read";
+            mock.toolInput = Map.of("file_path", "/tmp/factory-attachments/img-1.png");
+            var withImages = ClaudeCodeCodingRuntimeTest.runtime(IMAGE, mock.url(), mock.model, "api-key", 4,
+                    "unused-secret", true);
+            var outcome = new ImageStagingRuntime(withImages, jira, new DevAttachmentProperties(10, 4L * 1024 * 1024))
+                    .code(workload, request, 90, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(mock.calls).hasSize(2);
             assertThat(mock.calls.get(1).body.toString()).contains("\"type\":\"image\"").contains("base64");
@@ -98,8 +129,8 @@ class ClaudeCodeDockerTest {
              var scope = new DockerWorkloads().beginStep(executionId, "claude-maven-permissions");
              var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             mock.command = "mvn -B -ntp -o validate && " + mock.command;
-            var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
-                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 90);
+            var outcome = runtime(mock, "api-key")
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.metrics()).containsEntry("inputTokens", 80L).containsEntry("outputTokens", 10L)
                     .doesNotContainKey("usageIncomplete");
@@ -129,8 +160,8 @@ class ClaudeCodeDockerTest {
                 case "last-input" -> Set.of();
                 default -> Set.of(1, 2);
             };
-            var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
-                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60);
+            var outcome = runtime(mock, "api-key")
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.metrics()).containsEntry("usageIncomplete", true)
                     .containsEntry("inputTokens", 40L * (2 - mock.missingInputUsage.size()))
@@ -144,32 +175,46 @@ class ClaudeCodeDockerTest {
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-contract");
              var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
-            var runtime = new ClaudeCodeCodingRuntime(config(mock, authentication));
+            var runtime = runtime(mock, authentication);
             var events = new CopyOnWriteArrayList<Map<String, Object>>();
             assertThat(workload.execute(List.of("sh", "-c", "test \"$HOME\" = /tmp/factory-home && "
                     + "test ! -e /var/run/docker.sock && test -z \"$ANTHROPIC_API_KEY$ANTHROPIC_AUTH_TOKEN\" && "
-                    + "java -version && mvn -version"), 30).exitCode()).isZero();
-            var outcome = runtime.code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, events::add);
+                    + "java -version && mvn -version"), 30, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
+            var transcript = new CopyOnWriteArrayList<CodingTranscripts.Entry>();
+            var outcome = runtime.code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, events::add,
+                    transcript::add);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.summary()).contains("Implemented");
+            assertThat(transcript).extracting(CodingTranscripts.Entry::kind)
+                    .containsSubsequence("prompt", "tool_call", "tool_result", "result");
+            assertThat(transcript.getFirst().detail().get("text").toString()).contains("Factory CodingRequest JSON");
+            assertThat(transcript).filteredOn(entry -> entry.kind().equals("tool_call")).singleElement()
+                    .satisfies(entry -> assertThat(entry.detail()).containsEntry("tool", "Bash")
+                            .containsEntry("id", "tool_1"));
+            assertThat(events).anySatisfy(e -> assertThat(e).containsEntry("activity", "tool_execution_end")
+                    .containsEntry("tool", "Bash").containsKey("durationMs")
+                    .containsEntry("command", "printf 'edited by Claude\\n' > /workspace/changed.txt"));
+            assertThat(transcript.toString()).doesNotContain("secret-key", "secret-token");
             assertThat(outcome.metrics()).containsEntry("inputTokens", 80L).containsEntry("outputTokens", 10L)
                     .containsEntry("cacheReadTokens", 6L).containsEntry("cacheWriteTokens", 4L)
                     .doesNotContainKey("usageIncomplete");
             assertThat(events).anySatisfy(e -> assertThat(e).containsEntry("activity", "tool_execution_start"));
-            assertThat(events.toString()).doesNotContain("mock-key", "mock-token");
-            assertThat(workload.execute(List.of("test", "!", "-e", "/tmp/factory-claude"), 30).exitCode()).isZero();
+            assertThat(events.toString()).doesNotContain("secret-key", "secret-token");
+            assertThat(workload.execute(List.of("test", "!", "-e", "/tmp/factory-claude"), 30, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             workload.stop();
             workload.export(exported);
             assertThat(Files.readString(exported.resolve("changed.txt"))).isEqualTo("edited by Claude\n");
             assertThat(Files.exists(exported.resolve(".claude"))).isFalse();
             assertThat(mock.calls.size()).isEqualTo(2);
             for (var call : mock.calls) {
+                // --bare is off, so the CLI offers WebFetch.
+                assertThat(call.body.path("tools").findValuesAsString("name")).contains("Bash", "WebFetch");
                 assertThat(call.body.path("model").asString()).isEqualTo(MODEL);
                 assertThat(call.body.path("max_tokens").asInt()).isEqualTo(4096);
                 assertThat(call.body.path("stream").asBoolean()).isTrue();
                 assertThat(call.path).isEqualTo("/gateway/v1/messages");
-                assertThat(call.apiKey).isEqualTo(authentication.equals("api-key") ? "mock-key" : null);
-                assertThat(call.authorization).isEqualTo(authentication.equals("bearer-token") ? "Bearer mock-token" : null);
+                assertThat(call.apiKey).isEqualTo(authentication.equals("api-key") ? "secret-key" : null);
+                assertThat(call.authorization).isEqualTo(authentication.equals("bearer-token") ? "Bearer secret-token" : null);
             }
         }
     }
@@ -179,8 +224,8 @@ class ClaudeCodeDockerTest {
              var scope = new DockerWorkloads().beginStep(executionId, "claude-yarn-image");
              var workload = scope.createSeeded(IMAGE, source, yarnEnvironment(), "coding")) {
             mock.command = "node --version && yarn --version && mkdir node_modules && " + mock.command;
-            var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
-                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 90);
+            var outcome = runtime(mock, "api-key")
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(mock.calls).hasSize(2);
             assertThat(mock.calls.getLast().body.path("messages").toString()).contains("v22.").contains("1.22");
@@ -206,14 +251,14 @@ class ClaudeCodeDockerTest {
         // The fixture has no lockfile: the starting build resolves and pins one, every later stage installs from it.
         var runtime = new DevRuntimeProperties(Map.of("jest", List.of("yarn", "test")), null, 600, null, Map.of(),
                 Map.of("jest", Toolchain.YARN), new DevRuntimeProperties.Yarn(volume,
-                        DevRuntimeProperties.Yarn.DEFAULT_FOLIO_REGISTRY));
+                        DevRuntimeProperties.Yarn.DEFAULT_FOLIO_REGISTRY, null), 0);
         var environment = runtime.environment("jest");
         var plan = runtime.verificationCommand("jest");
         PinnedLockfile pinned;
 
         try (var scope = new DockerWorkloads().beginStep(executionId, "yarn-baseline");
              var baseline = scope.createTrusted(NODE_IMAGE, source, environment)) {
-            var result = baseline.execute(runtime.verificationCommand("jest", InstallMode.RESOLVE), 600);
+            var result = baseline.execute(runtime.verificationCommand("jest", InstallMode.RESOLVE), 600, Processes.OUTPUT_LIMIT, null);
             assertThat(result.exitCode()).as(result.diagnostics()).isZero();
             pinned = baseline.readLockfile().orElseThrow();
         }
@@ -225,12 +270,13 @@ class ClaudeCodeDockerTest {
             var prepared = PreparedWorkspace.prepare(workload, runtime, "jest", event -> { });
             assertThat(prepared.failure()).isNull();
             assertThat(prepared.installed()).isTrue();
-            assertThat(workload.execute(List.of("test", "-d", "node_modules/jest"), 30).exitCode()).isZero();
+            assertThat(workload.execute(List.of("test", "-d", "node_modules/jest"), 30, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             mock.command = "printf 'exports.sub = (a, b) => a - b;\\n' > src/sub.js "
                     + "&& printf \"const { sub } = require('./sub');\\ntest('sub', () => expect(sub(3, 1)).toBe(2));\\n\" "
                     + "> src/sub.test.js && yarn test 2>&1 | tail -5";
-            var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
-                    .code(workload, ClaudeCodeCodingRuntimeTest.request().withVerification("yarn test", true), 300);
+            var outcome = runtime(mock, "api-key")
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request().withVerification("yarn test", true), 300,
+                            event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(mock.calls.getFirst().body.toString()).contains("by running: yarn test")
                     .contains("already installed in /workspace");
@@ -247,10 +293,10 @@ class ClaudeCodeDockerTest {
         try (var scope = new DockerWorkloads().beginStep(executionId, "yarn-verify");
              var verification = scope.createSeeded(NODE_IMAGE, candidate, environment, "verification")) {
             verification.seedLockfile(pinned);
-            assertThat(verification.execute(List.of("rm", "-rf", "artifacts/jest-junit"), 60).exitCode()).isZero();
-            var result = verification.execute(plan, 600);
+            assertThat(verification.execute(List.of("rm", "-rf", "artifacts/jest-junit"), 60, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
+            var result = verification.execute(plan, 600, Processes.OUTPUT_LIMIT, null);
             assertThat(result.exitCode()).as(result.diagnostics()).isZero();
-            var report = verification.execute(List.of("cat", "artifacts/jest-junit/junit.xml"), 30);
+            var report = verification.execute(List.of("cat", "artifacts/jest-junit/junit.xml"), 30, Processes.OUTPUT_LIMIT, null);
             assertThat(report.output()).contains("<testsuites").contains("tests=\"2\"").contains("failures=\"0\"");
         }
     }
@@ -273,10 +319,13 @@ class ClaudeCodeDockerTest {
         try (var mock = new MessagesEndpoint(true, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-failure");
              var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
-            var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
-                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60);
+            var outcome = runtime(mock, "api-key")
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.FAILED);
-            assertThat(outcome.toString()).doesNotContain("mock-key", "private provider diagnostic");
+            // The CLI subtype and its error text are kept, with the credential redacted.
+            assertThat(outcome.failure().message()).contains("(subtype success, API status 400)",
+                    "Error: API Error: 400 private provider diagnostic [REDACTED]");
+            assertThat(outcome.toString()).doesNotContain("secret-key");
             workload.stop();
             workload.export(exported);
             assertThat(Files.readString(exported.resolve("changed.txt"))).isEqualTo("edited by Claude\n");
@@ -285,18 +334,18 @@ class ClaudeCodeDockerTest {
 
     @Test void decisionAndConfirmedContinuationUseFreshSessions() throws Exception {
         try (var mock = new MessagesEndpoint(false, true)) {
-            var runtime = new ClaudeCodeCodingRuntime(config(mock, "bearer-token"));
+            var runtime = runtime(mock, "bearer-token");
             var request = ClaudeCodeCodingRuntimeTest.request();
             try (var scope = new DockerWorkloads().beginStep(executionId, "clarify");
                  var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
-                var outcome = runtime.code(workload, request, 60);
+                var outcome = runtime.code(workload, request, 60, event -> {}, CodingTranscripts.NONE);
                 assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
                 assertThat(outcome.decision().kind()).isEqualTo(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS);
             }
             try (var scope = new DockerWorkloads().beginStep(executionId, "continue");
                  var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
                 var outcome = runtime.code(workload, request.withDecision(new CodingRequest.ConfirmedDecision(
-                        "decision-1", "PRODUCT_REQUIREMENTS", "Which API?", "Use public API")), 60);
+                        "decision-1", "PRODUCT_REQUIREMENTS", "Which API?", "Use public API")), 60, event -> {}, CodingTranscripts.NONE);
                 assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
                 assertThat(mock.calls.getLast().body.toString()).contains("Use public API");
             }
@@ -312,26 +361,27 @@ class ClaudeCodeDockerTest {
                 var command = List.of("docker", "run", "--rm", "--name", name,
                         "--label", "factory.dev-execution=" + executionId,
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "0:0",
-                        "--env", "HOME=/tmp/factory-home", "--env", "ANTHROPIC_AUTH_TOKEN=mock-token",
+                        "--env", "HOME=/tmp/factory-home", "--env", "ANTHROPIC_AUTH_TOKEN=secret-token",
                         "--env", "ANTHROPIC_BASE_URL=" + mock.url(), "--entrypoint", "claude", IMAGE,
-                        "--bare", "--print", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
-                        "--tools", "Bash,Read,Edit,Write,Glob,Grep", "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep",
+                        "--print", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
+                        "--setting-sources", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
+                        "--tools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
+                        "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
                         "--permission-mode", "dontAsk", "--permission-prompts", "none",
                         "--model", MODEL, "--max-turns", "3", "Use public API");
-                var result = Processes.run(null, command, 60);
+                var result = Processes.run(null, command, 60, Map.of(), Processes.OUTPUT_LIMIT, null);
                 assertThat(result.exitCode()).as(result.diagnostics()).isZero();
-                var protocol = new ClaudeCodeProtocol(MODEL, s -> s, e -> {});
+                var protocol = new ClaudeCodeProtocol(MODEL, 0, s -> s, e -> {}, CodingTranscripts.NONE);
                 result.output().lines().forEach(protocol);
-                assertThat(protocol.outcome(0).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+                assertThat(ClaudeCodeCodingRuntimeTest.finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
                 assertThat(mock.calls.size()).isEqualTo(2); // Includes an automatically approved Bash edit.
                 assertThat(mock.calls.getLast().body.path("messages").toString()).contains("Apache Maven");
-            } finally { Processes.run(null, List.of("docker", "rm", "--force", name), 30); }
+            } finally { Processes.run(null, List.of("docker", "rm", "--force", name), 30, Map.of(), Processes.OUTPUT_LIMIT, null); }
         }
     }
 
-    private static DevRuntimeProperties.ClaudeCode config(MessagesEndpoint mock, String authentication) {
-        return new DevRuntimeProperties.ClaudeCode(IMAGE, "anthropic-messages", mock.url(), mock.model,
-                authentication, "mock-key", "mock-token", 4, 4096, null);
+    private static ClaudeCodeCodingRuntime runtime(MessagesEndpoint mock, String authentication) {
+        return ClaudeCodeCodingRuntimeTest.runtime(IMAGE, mock.url(), mock.model, authentication, 4, "example-secret");
     }
 
     private static final class MessagesEndpoint implements AutoCloseable {
@@ -357,7 +407,7 @@ class ClaudeCodeDockerTest {
                             exchange.getRequestHeaders().getFirst("Authorization"), body));
                     boolean toolResult = body.path("messages").toString().contains("tool_result");
                     if (failAfterEdit && toolResult) {
-                        byte[] error = "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"private provider diagnostic mock-key\"}}".getBytes(StandardCharsets.UTF_8);
+                        byte[] error = "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"private provider diagnostic secret-key\"}}".getBytes(StandardCharsets.UTF_8);
                         exchange.getResponseHeaders().set("Content-Type", "application/json");
                         exchange.sendResponseHeaders(400, error.length);
                         exchange.getResponseBody().write(error);

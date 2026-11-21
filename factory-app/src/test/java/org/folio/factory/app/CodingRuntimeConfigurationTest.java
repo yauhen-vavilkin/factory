@@ -2,7 +2,10 @@ package org.folio.factory.app;
 
 import org.folio.factory.devfactory.DevFactoryConfiguration;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.PiCodingRuntime;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -14,47 +17,101 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
 
+/** The shipped application.yaml and config/developer-models.yaml, bound the way the application binds them. */
 class CodingRuntimeConfigurationTest {
-    @Test void actualApplicationYamlPreservesLegacyPiAndAllowsAnEmptyClaudeProfile() throws Exception {
-        var coding = bind(Map.of("FACTORY_MODEL_PROVIDER", "codemie", "FACTORY_MODEL_ID", "legacy-model",
-                "FACTORY_MODEL_API_KEY", "legacy-key", "FACTORY_MODEL_MAX_OUTPUT_TOKENS", "8192")).coding();
-        coding.piProfile().requireConfigured();
-        assertThat(coding.piProfile().model()).isEqualTo("legacy-model");
-        assertThat(coding.piProfile().maxOutputTokens()).isEqualTo(8192);
-        assertThat(coding.claudeCode().authentication()).isBlank();
+    @Test
+    void explicitPiSelectionUsesPiSettingsWithoutClaudeCredentials() throws Exception {
+        var setup = setup(Map.of(
+                "FACTORY_DEV_FACTORY_CODING_RUNTIME", "pi",
+                "FACTORY_PI_PROVIDER", "codemie",
+                "FACTORY_PI_MODEL", "pi-model",
+                "FACTORY_PI_API_KEY", "pi-key",
+                "FACTORY_PI_MAX_OUTPUT_TOKENS", "8192"));
+        var coding = setup.properties().coding();
+
+        assertThat(setup.runtime()).isInstanceOf(PiCodingRuntime.class);
+        coding.pi().requireConfigured();
+        assertThat(coding.pi().model()).isEqualTo("pi-model");
+        assertThat(coding.pi().image()).isEqualTo("factory-dev-pi:0.85.1-java21-node22");
+        assertThat(coding.pi().api()).isEqualTo("openai-completions");
+        assertThat(coding.pi().maxOutputTokens()).isEqualTo(8192);
+        assertThat(setup.models().ready()).isEmpty();
     }
 
-    @Test void newPiEnvironmentOverridesLegacySettingsFieldByField() throws Exception {
-        var coding = bind(Map.of("FACTORY_MODEL_PROVIDER", "legacy-provider", "FACTORY_MODEL_ID", "legacy-model",
-                "FACTORY_MODEL_API_KEY", "legacy-key", "FACTORY_PI_MODEL", "new-model",
-                "FACTORY_PI_API_KEY", "new-key", "FACTORY_PI_IMAGE", "new:image")).coding();
-        coding.piProfile().requireConfigured();
-        assertThat(coding.piProfile().model()).isEqualTo("new-model");
-        assertThat(coding.piProfile().apiKey()).isEqualTo("new-key");
-        assertThat(coding.piProfile().image()).isEqualTo("new:image");
-        assertThat(coding.piProfile().provider()).isEqualTo("legacy-provider");
-        assertThat(coding.piProfile().maxOutputTokens()).isEqualTo(16384);
+    @Test
+    void removedModelVariablesNoLongerConfigurePi() throws Exception {
+        var coding = setup(Map.of(
+                "FACTORY_DEV_FACTORY_CODING_RUNTIME", "pi",
+                "FACTORY_MODEL_PROVIDER", "legacy-provider",
+                "FACTORY_MODEL_ID", "legacy-model",
+                "FACTORY_MODEL_API_KEY", "legacy-key",
+                "FACTORY_DEV_FACTORY_CODING_IMAGE", "legacy:image")).properties().coding();
+
+        assertThat(coding.pi().model()).isBlank();
+        assertThat(coding.pi().apiKey()).isBlank();
+        assertThat(coding.pi().image()).isEqualTo("factory-dev-pi:0.85.1-java21-node22");
+        assertThatThrownBy(() -> coding.pi().requireConfigured())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("factory.dev-factory.runtime.coding.pi");
     }
 
-    @Test void claudeEnvironmentSelectsIndependentRuntimeWithoutPiCredentials() throws Exception {
-        var properties = bind(Map.of("FACTORY_DEV_FACTORY_CODING_RUNTIME", "claude-code",
-                "FACTORY_CLAUDE_CODE_MODEL", "exact/Model", "FACTORY_CLAUDE_CODE_BASE_URL", "https://gateway/anthropic",
-                "FACTORY_CLAUDE_CODE_AUTHENTICATION", "bearer-token", "FACTORY_CLAUDE_CODE_AUTH_TOKEN", "token"));
-        var runtime = new DevFactoryConfiguration().selectCodingRuntime(properties);
-        assertThat(runtime).isInstanceOf(ClaudeCodeCodingRuntime.class);
-        runtime.requireConfigured();
-        assertThat(properties.coding().piProfile().apiKey()).isBlank();
-        assertThat(runtime.identity()).containsEntry("model", "exact/Model");
+    @Test
+    void theLocalCodeMieSonnetIsTheDefaultModelAndItsPublicTokenNeedsNoVariable() throws Exception {
+        var setup = setup(Map.of());
+
+        assertThat(setup.properties().coding().runtime()).isEqualTo("claude-code");
+        assertThat(setup.runtime()).isInstanceOf(ClaudeCodeCodingRuntime.class);
+        assertThat(setup.runtime().identity(null)).containsEntry("modelId", "codemie-sonnet-5.5")
+                .containsEntry("model", "claude-sonnet-5-5").containsEntry("effort", "high")
+                .containsEntry("maxTurns", 400);
+        assertThat(setup.properties().timeoutSeconds()).isEqualTo(3600);
+        setup.runtime().requireConfigured(null);
+        assertThat(setup.properties().coding().pi().apiKey()).isBlank();
     }
 
-    private static DevRuntimeProperties bind(Map<String, Object> variables) throws Exception {
+    @Test
+    void theDefaultModelComesFromEnvAndNeedsOnlyItsOwnSecret() throws Exception {
+        var setup = setup(Map.of(
+                "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "anthropic-sonnet-5.5",
+                "FACTORY_ANTHROPIC_API_KEY", "token",
+                "FACTORY_CODEMIE_PROXY_TOKEN", "",
+                "FACTORY_CLAUDE_CODE_MAX_TURNS", "120"));
+
+        setup.runtime().requireConfigured(null);
+        assertThat(setup.runtime().identity(null)).containsEntry("modelId", "anthropic-sonnet-5.5")
+                .containsEntry("model", "claude-sonnet-5-5").containsEntry("maxTurns", 120);
+        assertThat(setup.models().ready()).extracting(model -> model.id()).containsExactly("anthropic-sonnet-5.5");
+        assertThat(setup.properties().coding().pi().apiKey()).isBlank();
+    }
+
+    @Test
+    void aDefaultModelWithoutItsSecretSaysWhichVariableToSet() throws Exception {
+        var setup = setup(Map.of("FACTORY_CODEMIE_PROXY_TOKEN", ""));
+
+        assertThatThrownBy(() -> setup.runtime().requireConfigured(null))
+                .isInstanceOf(ModelCatalog.ModelException.class)
+                .hasMessage("Model codemie-sonnet-5.5 is not configured: set FACTORY_CODEMIE_PROXY_TOKEN in .env."
+                        + " If docker-compose.yml does not pass FACTORY_CODEMIE_PROXY_TOKEN to the factory service"
+                        + " yet, add it there. Then run docker compose up -d again.");
+    }
+
+    private record Setup(DevRuntimeProperties properties, ModelCatalog models, CodingRuntime runtime) {
+    }
+
+    private static Setup setup(Map<String, Object> variables) throws Exception {
         var environment = new StandardEnvironment();
         // Never consult the developer's real credentials or runtime selection in these tests.
         environment.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
         environment.getPropertySources().remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
         environment.getPropertySources().addFirst(new MapPropertySource("fixture", variables));
-        for (var source : new YamlPropertySourceLoader().load("application", new ClassPathResource("application.yaml")))
-            environment.getPropertySources().addLast(source);
-        return Binder.get(environment).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
+        for (var file : new String[] {"application.yaml", "developer-models.yaml"}) {
+            new YamlPropertySourceLoader().load(file, new ClassPathResource(file))
+                    .forEach(environment.getPropertySources()::addLast);
+        }
+        var binder = Binder.get(environment);
+        var properties = binder.bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
+        var catalog = new ModelCatalog(binder.bind("factory.dev-factory", ModelCatalog.Properties.class).get(),
+                properties.coding().runtime(), environment::getProperty);
+        return new Setup(properties, catalog, DevFactoryConfiguration.selectCodingRuntime(properties, catalog));
     }
 }

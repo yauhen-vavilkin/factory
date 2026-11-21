@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.decision;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.ArtifactFormatException;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.hitl.ArtifactAmendmentValidator;
@@ -15,6 +16,7 @@ import java.util.Set;
  * repository. Trusted Developer artifacts (issue snapshot, decision request, task
  * brief) cannot be edited through HITL. Other flows' artifacts are ignored.
  */
+@RequiredArgsConstructor
 public class DevArtifactAmendmentValidator implements ArtifactAmendmentValidator {
 
     private static final Set<String> TRUSTED = Set.of(
@@ -24,28 +26,29 @@ public class DevArtifactAmendmentValidator implements ArtifactAmendmentValidator
     private final FrontmatterCodec codec;
     private final RepositoryPolicy policy;
 
-    public DevArtifactAmendmentValidator(FrontmatterCodec codec, RepositoryPolicy policy) {
-        this.codec = codec;
-        this.policy = policy;
-    }
-
     @Override
     public void validate(String artifactName, String content) {
         if (TRUSTED.contains(artifactName)) {
-            throw new IllegalArgumentException("'" + artifactName + "' is trusted Developer Flow data and cannot be amended");
+            throw new IllegalArgumentException(
+                    "'" + artifactName + "' is trusted Developer Flow data and cannot be amended");
         }
         if (CodingDecisionArtifacts.ANSWER.equals(artifactName)) {
-            try {
-                CodingDecisionArtifacts.parseAnswer(codec, content);
-            } catch (RuntimeException e) {
-                throw new IllegalArgumentException("Amended coding decision answer is not valid: "
-                        + e.getMessage(), e);
-            }
-            return;
+            validateCodingAnswer(content);
+        } else if (DecisionArtifacts.ANSWER.equals(artifactName)) {
+            validateRepositoryAnswer(content);
         }
-        if (!DecisionArtifacts.ANSWER.equals(artifactName)) {
-            return;
+    }
+
+    private void validateCodingAnswer(String content) {
+        try {
+            CodingDecisionArtifacts.parseAnswer(codec, content);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("Amended coding decision answer is not valid: "
+                    + e.getMessage(), e);
         }
+    }
+
+    private void validateRepositoryAnswer(String content) {
         DecisionArtifacts.Answer answer;
         try {
             answer = DecisionArtifacts.parseAnswer(codec, content);

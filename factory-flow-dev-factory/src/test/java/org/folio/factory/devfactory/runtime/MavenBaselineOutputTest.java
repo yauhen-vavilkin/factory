@@ -38,6 +38,9 @@ class MavenBaselineOutputTest {
     @ValueSource(strings = {
             "[ERROR] Could not find artifact org.example:library:jar:1 in folio-nexus",
             "[ERROR] Could not find artifact org.example:library:jar:1 in index-data-nexus",
+            "[ERROR] Could not find artifact org.example:missing:jar:1 in folio-nexus\n"
+                    + "[ERROR] Could not find artifact org.example:missing:jar:1 in index-data-nexus",
+            "[ERROR] There are test failures",
             "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: status code: 401",
             "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: status code: 404",
             "[ERROR] Connection reset in ApplicationTest",

@@ -1,5 +1,6 @@
 package org.folio.factory.core;
 
+import lombok.RequiredArgsConstructor;
 import org.hibernate.type.descriptor.WrapperOptions;
 import org.hibernate.type.descriptor.java.JavaType;
 import org.hibernate.type.format.FormatMapper;
@@ -11,13 +12,10 @@ import tools.jackson.databind.json.JsonMapper;
  * provides. JSON-typed entity attributes in this codebase are raw JSON strings,
  * which pass through unchanged; other types are round-tripped through Jackson.
  */
+@RequiredArgsConstructor
 public class Jackson3JsonFormatMapper implements FormatMapper {
 
     private final JsonMapper jsonMapper;
-
-    public Jackson3JsonFormatMapper(JsonMapper jsonMapper) {
-        this.jsonMapper = jsonMapper;
-    }
 
     @Override
     @SuppressWarnings("unchecked")

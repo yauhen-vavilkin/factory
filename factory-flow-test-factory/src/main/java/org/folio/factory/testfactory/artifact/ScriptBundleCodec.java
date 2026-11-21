@@ -1,5 +1,6 @@
 package org.folio.factory.testfactory.artifact;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.ArtifactFormatException;
 import org.folio.factory.agents.artifact.Frontmatter;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
@@ -20,6 +21,7 @@ import java.util.regex.Pattern;
  * artifacts" rule while still bundling multiple generated files.
  */
 @Component
+@RequiredArgsConstructor
 public class ScriptBundleCodec {
 
     private static final String FENCE = "````";
@@ -28,10 +30,6 @@ public class ScriptBundleCodec {
             Pattern.MULTILINE | Pattern.DOTALL);
 
     private final FrontmatterCodec frontmatterCodec;
-
-    public ScriptBundleCodec(FrontmatterCodec frontmatterCodec) {
-        this.frontmatterCodec = frontmatterCodec;
-    }
 
     public String render(ScriptBundle bundle) {
         Map<String, Object> metadata = new LinkedHashMap<>();

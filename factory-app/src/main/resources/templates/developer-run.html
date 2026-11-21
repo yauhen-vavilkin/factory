@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title=${run.header().pageTitle()}, activeNav='flows', content=~{:: .dev-page}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<div class="dev-page" data-poll-fields="revision"
+     th:attr="data-poll-url=${pollUrl}, data-poll-baseline=${pollBaseline}"
+     th:with="header=${run.header()}, status=${run.status()}, standing=${run.standing()}">
+    <div class="dev-heading">
+        <nav class="dev-breadcrumb" aria-label="Breadcrumb"><a th:href="@{/flows/dev-factory}">Developer Flow</a>
+            <th:block th:if="${header.key() != null}">/ <a th:if="${header.taskId() != null}"
+                    th:href="@{'/tasks/' + ${header.taskId()}}" th:text="${header.key()}">KEY-1</a><span
+                    th:if="${header.taskId() == null}" th:text="${header.key()}">KEY-1</span></th:block>
+            / <span th:text="${header.crumb()}">Run 1</span></nav>
+        <div class="dev-meta" th:if="${header.jiraUrl() != null}">
+            <span class="src src-jira">Jira task</span>
+            <a class="key-link ext-link" th:href="${header.jiraUrl()}" th:text="${header.key()}">KEY-1</a>
+        </div>
+        <h1 class="dev-title" th:text="${header.title()}">Task</h1>
+        <div class="dev-meta" th:if="${header.repository() != null or header.settings() != null}">
+            <span class="src">Factory run</span>
+            <span class="dev-meta-dots"><span th:if="${header.repository() != null}"
+                    th:text="${header.repository()}">repository</span><span th:if="${header.settings() != null}"
+                    th:text="${header.settings()}">model · effort</span></span>
+        </div>
+    </div>
+
+    <p class="dev-poll-notice" role="status" data-poll-notice hidden>This run changed. Copy what you typed or
+        selected, then reload the page to see the change.</p>
+
+    <section class="status-card" aria-label="Status" th:attr="data-turn=${run.turn().name()}">
+        <div class="status-card-main">
+            <th:block th:replace="~{fragments/developer-flow :: statusChip(${status})}"></th:block>
+            <div class="status-card-body">
+                <span class="src" th:classappend="${run.turn().yours()} ? 'src-you'"
+                      th:text="${run.turn().label()}">Your turn</span>
+                <p class="status-card-headline" th:text="${status.headline()}">Implementing changes</p>
+                <p class="status-card-reason" th:if="${status.reason() != null}"><span class="status-card-label" th:text="${status.reasonLabel()}">Reason</span>
+                    <span th:text="${status.reason()}">Why the run failed.</span></p>
+                <p class="status-card-note" th:if="${status.reasonUrl() != null}"><a class="dev-link"
+                        th:href="@{${status.reasonUrl()}}">Limits in Configuration</a></p>
+                <p class="status-card-reason" th:if="${status.question() != null}" th:text="${status.question()}">
+                    The agent's question.</p>
+                <p class="status-card-note" th:if="${status.note() != null}" th:text="${status.note()}">
+                    No pull request was created.</p>
+                <div th:replace="~{fragments/developer-flow :: draftReasons(${status.draftReasons()})}"></div>
+            </div>
+        </div>
+        <div class="status-card-side">
+            <span th:if="${status.amount() != null or status.amountNote() != null}"><span class="status-card-money"
+                    th:if="${status.amount() != null}" th:title="${status.amountTitle()}"
+                    th:text="${status.amount()}">$0.23</span>
+                <span class="status-card-note" th:if="${status.amountNote() != null}"
+                      th:text="${status.amountNote()}">so far</span></span>
+            <span th:replace="~{fragments/developer-flow :: clock(${status.clock()})}"></span>
+            <a class="btn btn-primary btn-sm" th:if="${status.actionUrl() != null}" th:href="${status.actionUrl()}"
+               th:text="${status.actionLabel()}">Answer on the task page</a>
+            <a class="btn btn-primary btn-sm"
+               th:if="${run.offersRetry()}"
+               th:href="${standing.retryUrl()}" th:text="${standing.retryLabel()}">Start run 2</a>
+        </div>
+    </section>
+
+    <div class="run-standing" th:if="${standing != null and standing.lead() != null}">
+        <p><th:block th:text="${standing.lead()}">Run 1 of 3. Latest: </th:block><a
+                th:if="${standing.latestUrl() != null}" th:href="${standing.latestUrl()}"
+                th:text="${standing.latestText()}">run 3</a><th:block th:if="${standing.latestUrl() == null}"
+                th:text="${standing.latestText()}">run 3</th:block><th:block
+                th:text="${standing.tail()}">, Draft PR #14.</th:block></p>
+    </div>
+
+    <section class="run-part" aria-labelledby="steps-title">
+        <div class="run-part-head"><h2 class="dev-section-title" id="steps-title">Steps</h2><span class="src">Factory</span></div>
+        <ol class="run-steps" aria-label="Steps">
+            <li class="run-step" th:each="step : ${run.steps()}" th:attr="data-state=${step.tone()}">
+                <span class="run-step-title" th:text="${step.title()}">1 · Prepare task</span>
+                <span class="run-step-state"><span th:text="${step.stateLabel()}">Passed</span><th:block
+                        th:if="${step.detail() != null}"> · <span th:attr="data-elapsed-start=${step.elapsedStart()}"
+                        th:text="${step.detail()}">2 s</span></th:block></span>
+            </li>
+        </ol>
+    </section>
+
+    <th:block th:if="${feedback != null}"><th:block th:replace="~{fragments/pr-feedback :: feedback}"></th:block></th:block>
+
+    <th:block th:if="${feedback == null}"><th:block th:replace="~{fragments/developer-flow :: runColumns(${run.activity()}, ${run.usage()}, ${run.links().transcriptUrl()})}"></th:block></th:block>
+
+    <div class="run-disclosures">
+        <details class="fold" id="fold-activity" th:if="${feedback != null}">
+            <summary><span class="fold-title">Activity</span><span class="fold-hint"
+                    th:text="${run.activity().total()}">0</span><span class="src src-agent">Coding agent</span></summary>
+            <div class="fold-body">
+                <th:block th:replace="~{fragments/developer-flow :: activity(${run.activity()}, ${run.links().transcriptUrl()})}"></th:block>
+            </div>
+        </details>
+        <details class="fold" id="fold-usage" th:if="${feedback != null}">
+            <summary><span class="fold-title">Usage</span><span class="fold-hint"><th:block
+                    th:if="${run.usage().cost() != null}" th:text="${run.usage().cost()}">$0.00</th:block></span><span
+                    class="src">Factory</span></summary>
+            <div class="fold-body">
+                <th:block th:replace="~{fragments/developer-flow :: usage(${run.usage()})}"></th:block>
+            </div>
+        </details>
+        <details class="fold" id="fold-technical" th:with="tech=${run.technical()}, links=${run.links()}">
+            <summary><span class="fold-title">Technical details</span><span class="fold-hint">Checkout, commands
+                and what was delivered</span><span class="src">Factory</span></summary>
+            <div class="fold-body">
+            <dl class="tech-facts">
+                <th:block th:if="${tech.checkout() != null}">
+                    <dt>Checkout</dt>
+                    <dd><code th:text="${tech.checkout()}">repo@branch</code><th:block
+                            th:if="${tech.startingCommit() != null}"> at <code
+                            th:text="${tech.startingCommit()}">sha</code></th:block></dd>
+                </th:block>
+                <th:block th:if="${tech.buildCommand() != null or tech.buildResult() != null}">
+                    <dt>Starting build</dt>
+                    <dd><span th:if="${tech.buildResult() != null}" th:text="${tech.buildResult()}">Passed</span><th:block
+                            th:if="${tech.buildResult() != null and tech.buildCommand() != null}"> · </th:block><code
+                            th:if="${tech.buildCommand() != null}" th:text="${tech.buildCommand()}">command</code></dd>
+                </th:block>
+                <th:block th:if="${tech.checksCommand() != null or tech.checksExitCode() != null}">
+                    <dt>Checks</dt>
+                    <dd><span th:if="${tech.checksPlan() != null}" th:text="${tech.checksPlan()}">plan</span><th:block
+                            th:if="${tech.checksPlan() != null and tech.checksCommand() != null}"> · </th:block><code
+                            th:if="${tech.checksCommand() != null}" th:text="${tech.checksCommand()}">command</code><th:block
+                            th:if="${tech.checksExitCode() != null}"
+                            th:text="' · exit code ' + ${tech.checksExitCode()}"> · exit code 0</th:block></dd>
+                </th:block>
+                <th:block th:if="${tech.deliveredRepository() != null}">
+                    <dt>Delivered to</dt>
+                    <dd><code th:text="${tech.deliveredRepository()}">owner/repository</code></dd>
+                </th:block>
+                <th:block th:if="${tech.deliveredBranch() != null}">
+                    <dt>Delivered branch</dt>
+                    <dd><code th:text="${tech.deliveredBranch()}">branch</code><th:block
+                            th:if="${tech.deliveredCommit() != null}"> at <code
+                            th:text="${tech.deliveredCommit()}">sha</code></th:block></dd>
+                </th:block>
+                <th:block th:unless="${#lists.isEmpty(links.pricing())}">
+                    <dt>Pricing</dt>
+                    <dd><th:block th:each="source, state : ${links.pricing()}"><th:block th:unless="${state.first}">,
+                            </th:block><a class="dev-link ext-link" th:if="${source.url() != null}"
+                            th:href="${source.url()}" target="_blank" rel="noopener noreferrer"
+                            th:text="${source.url()}">https://platform.claude.com/docs/en/about-claude/pricing</a><th:block
+                            th:text="${source.text()}"> (2026-09-19)</th:block></th:block>.
+                        Real provider charges may differ.</dd>
+                </th:block>
+            </dl>
+                <details class="disclosure" th:if="${tech.buildOutput() != null}">
+                    <summary>Starting build output</summary>
+                    <pre class="code-block" th:text="${tech.buildOutput()}">output</pre>
+                </details>
+                <div class="run-links">
+                    <a th:href="${links.transcriptUrl()}">Transcript</a>
+                    <a th:href="${links.auditUrl()}">Audit log</a>
+                </div>
+            </div>
+        </details>
+        <details class="fold" id="fold-artifacts" th:with="links=${run.links()}">
+            <summary><span class="fold-title">Artifacts</span><span class="fold-hint"
+                    th:text="${links.artifactCount()}">0</span><span class="src">Factory</span></summary>
+            <div class="fold-body">
+                <p class="dev-note" th:if="${#lists.isEmpty(links.artifacts())}">This run has no artifacts.</p>
+                <dl class="tech-facts artifact-list" th:unless="${#lists.isEmpty(links.artifacts())}">
+                    <th:block th:each="group : ${links.artifacts()}">
+                        <dt th:text="${group.name()}">dev_result.json</dt>
+                        <dd class="artifact-links"><a th:each="version : ${group.versions()}"
+                                th:href="${version.url()}" th:text="${version.label()}">v1</a></dd>
+                    </th:block>
+                </dl>
+            </div>
+        </details>
+    </div>
+
+</div>
+</body>
+</html>

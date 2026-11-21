@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * Everything an agent worker is allowed to see for one step execution. The engine
@@ -23,7 +24,7 @@ public record AgentContext(
         List<String> expectedOutputs, Invocation invocation) {
 
     public record Invocation(UUID id, boolean replay, Runnable ownershipCheck,
-                             java.util.function.Consumer<Map<String, Object>> progressRecorder) {
+                             Consumer<Map<String, Object>> progressRecorder) {
         public void requireOwned() { ownershipCheck.run(); }
         public void recordProgress(Map<String, Object> detail) { progressRecorder.accept(detail); }
     }
@@ -43,7 +44,8 @@ public record AgentContext(
         ArtifactContent artifact = inputs.get(name);
         if (artifact == null) {
             throw new NoSuchElementException(
-                    "Step '" + stepId + "' has no input artifact '" + name + "' — is it declared in the flow descriptor?");
+                    "Step '" + stepId + "' has no input artifact '" + name
+                            + "' — is it declared in the flow descriptor?");
         }
         return artifact;
     }

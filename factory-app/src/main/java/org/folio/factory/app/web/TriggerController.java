@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,20 +15,17 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/triggers")
+@RequiredArgsConstructor
 public class TriggerController {
-
-    private final PipelineRouter router;
-
-    public TriggerController(PipelineRouter router) {
-        this.router = router;
-    }
-
-    public record ManualTriggerRequest(String flowId, JsonNode payload, String dedupKey) {
-    }
 
     // Matches the dedup_key varchar(255) column; an unvalidated longer key would only
     // surface as a DB constraint error deep in the router's dedup-race handling.
     private static final int MAX_DEDUP_KEY_LENGTH = 255;
+
+    private final PipelineRouter router;
+
+    public record ManualTriggerRequest(String flowId, JsonNode payload, String dedupKey) {
+    }
 
     @PostMapping("/manual")
     public ResponseEntity<Map<String, String>> manual(@RequestBody ManualTriggerRequest request) {

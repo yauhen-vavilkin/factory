@@ -149,7 +149,7 @@ class AbstractLlmAgentWorkerTest {
     }
 
     @Test
-    void loadsClasspathPromptsForSystemAndUser() {
+    void systemAndUserPromptsAreRenderedFromTheirOwnTemplates() {
         TestWorker worker = new TestWorker(ChatClient.create(new StubChatModel()));
 
         assertThat(worker.systemPrompt(Map.of("context_name", "unit-test")))

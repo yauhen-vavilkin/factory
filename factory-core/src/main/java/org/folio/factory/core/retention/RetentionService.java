@@ -1,8 +1,8 @@
 package org.folio.factory.core.retention;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.ExecutionStatus;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -25,9 +25,9 @@ import java.util.UUID;
  */
 @Component
 @ConditionalOnProperty(prefix = "factory.retention", name = "enabled", havingValue = "true", matchIfMissing = false)
+@RequiredArgsConstructor
+@Slf4j
 public class RetentionService {
-
-    private static final Logger log = LoggerFactory.getLogger(RetentionService.class);
 
     /**
      * Statuses that are safe to purge. FAILED_ESCALATED is deliberately excluded:
@@ -43,13 +43,6 @@ public class RetentionService {
     private final RetentionPurger purger;
     private final RetentionProperties properties;
 
-    public RetentionService(RetentionRepository repository, RetentionPurger purger,
-                            RetentionProperties properties) {
-        this.repository = repository;
-        this.purger = purger;
-        this.properties = properties;
-    }
-
     @Scheduled(cron = "${factory.retention.run-cron:0 30 3 * * *}")
     public void purgeExpired() {
         if (properties.ttlDays() < 1) {
@@ -64,29 +57,42 @@ public class RetentionService {
         if (roots.isEmpty()) {
             return;
         }
-        int trees = 0;
-        int executions = 0;
-        int artifacts = 0;
-        int hitlReviews = 0;
-        int skipped = 0;
+        var totals = purgeTrees(roots);
+        log.info("Retention purge removed {} tree(s): {} executions, {} artifacts, {} hitl reviews "
+                        + "({} candidate(s), {} skipped, ttl {} day(s))",
+                totals.trees, totals.executions, totals.artifacts, totals.hitlReviews, roots.size(),
+                totals.skipped, properties.ttlDays());
+    }
+
+    private PurgeTotals purgeTrees(List<UUID> roots) {
+        var totals = new PurgeTotals();
         for (UUID root : roots) {
             try {
-                RetentionPurger.Outcome outcome = purger.purgeTree(root);
-                if (outcome.skipped()) {
-                    skipped++;
-                    continue;
-                }
-                trees++;
-                executions += outcome.executions();
-                artifacts += outcome.artifacts();
-                hitlReviews += outcome.hitlReviews();
+                totals.add(purger.purgeTree(root));
             } catch (RuntimeException e) {
                 // One bad tree must not abort the whole run.
                 log.warn("Retention purge failed for execution tree {}: {}", root, e.getMessage());
             }
         }
-        log.info("Retention purge removed {} tree(s): {} executions, {} artifacts, {} hitl reviews "
-                        + "({} candidate(s), {} skipped, ttl {} day(s))",
-                trees, executions, artifacts, hitlReviews, roots.size(), skipped, properties.ttlDays());
+        return totals;
+    }
+
+    private static final class PurgeTotals {
+        private int trees;
+        private int executions;
+        private int artifacts;
+        private int hitlReviews;
+        private int skipped;
+
+        void add(RetentionPurger.Outcome outcome) {
+            if (outcome.skipped()) {
+                skipped++;
+                return;
+            }
+            trees++;
+            executions += outcome.executions();
+            artifacts += outcome.artifacts();
+            hitlReviews += outcome.hitlReviews();
+        }
     }
 }

@@ -1,13 +1,12 @@
 package org.folio.factory.devfactory.decision;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.devfactory.candidate.Candidate;
 import tools.jackson.databind.JsonNode;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +19,7 @@ import java.util.regex.Pattern;
  * artifact a reviewer may amend). The answer is bound to its request by
  * {@code request_id}, a hash of the request's identity.
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class DecisionArtifacts {
 
     public static final String REQUEST = "dev_decision_request.md";
@@ -27,9 +27,6 @@ public final class DecisionArtifacts {
 
     private static final Pattern REQUEST_ID = Pattern.compile("[0-9a-f]{64}");
     private static final Set<String> ANSWER_KEYS = Set.of("request_id", "choice");
-
-    private DecisionArtifacts() {
-    }
 
     public record Option(String id, String label) {
     }
@@ -77,7 +74,8 @@ public final class DecisionArtifacts {
     public static Request parseRequest(FrontmatterCodec codec, String content) {
         JsonNode m = codec.parse(content).metadata();
         List<Option> options = new ArrayList<>();
-        m.path("options").forEach(o -> options.add(new Option(o.path("id").asString(""), o.path("label").asString(""))));
+        m.path("options").forEach(o -> options.add(
+                new Option(o.path("id").asString(""), o.path("label").asString(""))));
         return new Request(m.path("required").asBoolean(false), m.path("request_id").asString(""),
                 m.path("issue_key").asString(""), m.path("question").asString(""), options,
                 m.path("recommended").asString(null));
@@ -123,11 +121,6 @@ public final class DecisionArtifacts {
     private static String hashRequest(String issueKey, String question, List<Option> options) {
         StringBuilder identity = new StringBuilder(issueKey).append('\n').append(question);
         options.forEach(o -> identity.append('\n').append(o.id()));
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(identity.toString().getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        return Candidate.sha256(identity.toString());
     }
 }

@@ -1,5 +1,6 @@
 package org.folio.factory.app;
 
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.domain.*;
 import org.folio.factory.core.engine.*;
 import org.folio.factory.core.hitl.*;
@@ -10,38 +11,35 @@ import org.folio.factory.devfactory.candidate.*;
 import org.folio.factory.devfactory.runtime.*;
 import org.folio.factory.devfactory.verification.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.*;
 import java.nio.file.*;
 import java.time.*;
 import java.util.*;
 import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
+import static org.folio.factory.app.support.DevFlowHarness.visibleText;
 import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 import static org.folio.factory.devfactory.feedback.FeedbackActions.Action.*;
 
 /** Real engine, transactions, rendering and local fork Git; scripted coding/check boundaries. */
-@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"spring.ai.model.chat=none","factory.engine.enabled=false"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@FactoryIntegrationTest
+// Own context: its own fixture repository, pricing and scripted GitHub, Docker, coding and checks; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class PrFeedbackIntegrationTest {
     static final PinnedLockfile PINNED=PinnedLockfile.of("# yarn lockfile v1\n".getBytes()).forPackageJson("c".repeat(40));
-    @Container @ServiceConnection static PostgreSQLContainer<?> postgres=new PostgreSQLContainer<>("postgres:16");
-    static final Path root=CandidateFreezer.temporary("factory-pr-test-");
+    @TempDir static Path root;
+    static Path bare, work;
+    static String base;
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r) {
         r.add("factory.dev-factory.git-base-url",()->root.toUri().toString());
         r.add("factory.dev-factory.repositories.fixture.source-repo",()->"upstream/repo");
@@ -50,15 +48,18 @@ class PrFeedbackIntegrationTest {
         r.add("factory.dev-factory.repositories.fixture.build-image",()->"fixture-image");
         r.add("factory.dev-factory.repositories.fixture.verification-plan",()->"fixture-checks");
         r.add("factory.dev-factory.runtime.plans.fixture-checks[0]",()->"fixture-check");
-        r.add("factory.dev-factory.delivery.targets.fixture.repository",()->"fork/repo");
-        r.add("factory.dev-factory.delivery.targets.fixture.base-branch",()->"main");
-        r.add("factory.dev-factory.delivery.targets.fixture.authorized",()->"true");
-        for(String model:List.of("fixture-model","second-fixture-model")) {
-            String prefix="factory.developer-pricing.rates."+model+".";
-            r.add(prefix+"model",()->model); r.add(prefix+"currency",()->"USD");
-            r.add(prefix+"as-of",()->"2026-09-23"); r.add(prefix+"source",()->"https://example.org/fixture-pricing");
-            r.add(prefix+"input-per-million",()->model.equals("fixture-model")?"2":"4");
-            r.add(prefix+"output-per-million",()->model.equals("fixture-model")?"10":"20");
+        r.add("factory.dev-factory.repositories.fixture.delivery.repository",()->"fork/repo");
+        List<String> models=List.of("fixture-model","second-fixture-model");
+        for(int i=0;i<models.size();i++) {
+            String model=models.get(i); String prefix="factory.dev-factory.models["+i+"].";
+            r.add(prefix+"id",()->model); r.add(prefix+"api",()->"anthropic-messages");
+            r.add(prefix+"base-url",()->"https://gateway.fixture.invalid"); r.add(prefix+"authentication",()->"api-key");
+            r.add(prefix+"secret-env",()->"FIXTURE_KEY"); r.add(prefix+"model",()->model);
+            r.add(prefix+"efforts[0]",()->"high"); r.add(prefix+"default-effort",()->"high");
+            r.add(prefix+"price.currency",()->"USD");
+            r.add(prefix+"price.as-of",()->"2026-09-23"); r.add(prefix+"price.source",()->"https://example.org/fixture-pricing");
+            r.add(prefix+"price.input-per-million",()->model.equals("fixture-model")?"2":"4");
+            r.add(prefix+"price.output-per-million",()->model.equals("fixture-model")?"10":"20");
         }
     }
     @Autowired StateManager state;
@@ -73,24 +74,34 @@ class PrFeedbackIntegrationTest {
     @Autowired FeedbackActions actions;
     @Autowired HitlDecisionService decisions;
     @Autowired HitlGateOpener gates;
+    @Autowired org.folio.factory.app.developer.CodingTranscriptStore transcripts;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @LocalServerPort int port;
     @MockitoBean PrFeedbackGateway gateway;
+    @MockitoBean PrCommentWriter commentWriter;
     @MockitoBean DockerWorkloads docker;
     @MockitoBean CodingRuntime coding;
     @MockitoBean CandidateVerifier verifier;
-    Path bare, work, codingSource;
+    Path codingSource;
     UUID id;
-    String branch, base;
+    String branch;
     int calls;
-    boolean noChanges, ask, checksFail, cleanupFails, exportFails, closed, merged, mergeDuringCode, statusFails, badPolicy;
+    boolean noChanges, ask, checksFail, checksCannotRun, cleanupFails, exportFails, closed, merged, mergeDuringCode, statusFails, badPolicy;
     String commentsRevision="1";
     Map<String,Object> usage=Map.of("model","fixture-model","inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
-    @BeforeEach void setup() throws Exception {
-        calls=0; noChanges=ask=checksFail=cleanupFails=exportFails=closed=merged=mergeDuringCode=statusFails=badPolicy=false; commentsRevision="1";
-        bare=root.resolve("fork/repo.git"); CandidateFreezer.delete(bare);
-        work=Files.createTempDirectory(root,"work-");
+    /** One fork and one working copy per class; every test starts from the initial commit with no refs. */
+    @BeforeAll static void createFork() throws Exception {
+        bare=root.resolve("fork/repo.git"); work=root.resolve("work");
         git(root,"init","--bare",bare.toString()); git(root,"init","-b","main",work.toString());
         Files.writeString(work.resolve("value.txt"),"initial\n"); commit("initial fork-only commit"); base=git(work,"rev-parse","HEAD").strip();
+    }
+    static void resetFork() {
+        for(String ref:git(bare,"for-each-ref","--format=%(refname)").lines().toList()) git(bare,"update-ref","-d",ref);
+        git(work,"reset","--quiet","--hard",base); git(work,"clean","-qfdx");
+    }
+    @BeforeEach void setup() throws Exception {
+        calls=0; noChanges=ask=checksFail=checksCannotRun=cleanupFails=exportFails=closed=merged=mergeDuringCode=statusFails=badPolicy=false; commentsRevision="1";
+        resetFork();
         id=state.createExecution("dev-factory",VERSION,null).getId(); branch="factory/test-1-"+id;
         git(work,"push",bare.toString(),"HEAD:refs/heads/"+branch);
         when(gateway.read(eq("fork/repo"),eq(7))).thenAnswer(i->pr());
@@ -99,7 +110,7 @@ class PrFeedbackIntegrationTest {
             return merged ? PrFeedbackGateway.Status.MERGED : closed ? PrFeedbackGateway.Status.CLOSED : PrFeedbackGateway.Status.OPEN;
         });
         when(gateway.comments(any())).thenAnswer(i->new PrFeedbackGateway.Snapshot(pr().headSha()+commentsRevision,pr(),List.of(comment())));
-        when(coding.image()).thenReturn("fixture-image"); when(coding.identity()).thenReturn(Map.of("model","fixture-model","runtime","scripted"));
+        when(coding.image()).thenReturn("fixture-image"); when(coding.identity(any())).thenReturn(Map.of("model","fixture-model","runtime","scripted"));
         when(coding.redact(anyString())).thenAnswer(i->i.getArgument(0));
         var scope=mock(DockerWorkloads.StepScope.class); var workload=mock(DockerWorkloads.Workload.class);
         when(docker.beginStep(any(),anyString())).thenReturn(scope);
@@ -111,27 +122,29 @@ class PrFeedbackIntegrationTest {
             }} return null;
         }).when(workload).export(any());
         doAnswer(i->{if(cleanupFails && calls>0) throw new IllegalStateException("Resource still exists");return null;}).when(docker).cleanOwned(any(),anyString());
-        when(coding.code(any(),any(),anyInt(),any())).thenAnswer(i->{
+        when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(i->{
             calls++;
             if(mergeDuringCode) merged=true;
             if(!noChanges) Files.writeString(codingSource.resolve("value.txt"),Files.readString(codingSource.resolve("value.txt"))+"fix "+calls+"\n");
             Consumer<Map<String,Object>> progress=i.getArgument(3); var streamed=new HashMap<String,Object>(usage); streamed.put("activity","coding_usage"); progress.accept(streamed);
-            if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"),usage);
+            CodingTranscripts.Sink transcript=i.getArgument(4); transcript.add(new CodingTranscripts.Entry("prompt",Instant.now(),Map.of("text","Feedback round "+calls)));
+            if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"), "",usage);
             return CodingOutcome.completed("Corrected selected feedback",usage);
         });
-        when(verifier.verify(any(),anyString(),any(),anyString(),any())).thenAnswer(i->{
+        when(verifier.verify(any(),anyString(),any(),anyString(),anyInt(),any())).thenAnswer(i->{
             Candidate c=i.getArgument(2); Instant now=Instant.now();
-            return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),badPolicy?"previous-checks":"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,checksFail?1:0,1,1,checksFail?1:0,0,checksFail?"FAIL":"PASS","Independent fixture report",checksFail?VerificationFailure.CANDIDATE:VerificationFailure.NONE,0,List.of(),List.of());
+            // The build environment failed before the tests wrote a report.
+            if(checksCannotRun) return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,1,0,null,null,null,"FAIL","Cannot connect to the Docker daemon",VerificationFailure.ENVIRONMENT,0,List.of(),List.of(), null, null);
+            return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),badPolicy?"previous-checks":"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,checksFail?1:0,1,1,checksFail?1:0,0,checksFail?"FAIL":"PASS","Independent fixture report",checksFail?VerificationFailure.CANDIDATE:VerificationFailure.NONE,0,List.of(),List.of(), null, null);
         });
         var request=new CodingRequest("TEST-1","Fixture task","Fix behavior",List.of(),List.of(),List.of("Checks pass"),List.of(),
-                new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),CodingRequest.Constraints.defaults());
+                new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),CodingRequest.Constraints.defaults(), null, List.of());
         artifacts.putMarkdown(id,"dev_coding_request.json",JSON.writeValueAsString(request),"fixture");
         artifacts.putMarkdown(id,"dev_lockfile.json",PINNED.toArtifact(),"fixture");
         artifacts.putMarkdown(id,"dev_delivery.json",JSON.writeValueAsString(Map.of("state","DELIVERED","repository","fixture","deliveryBranch",branch,"pullRequestUrl","https://github.com/fork/repo/pull/7")),"fixture");
         var e=state.get(id); e.setCurrentStepIndex(8); executions.save(e);
     }
     @AfterEach void finish() { cleanupFails=false; if(!state.get(id).getStatus().isFinal()) state.transition(id,ExecutionStatus.CANCELLED,Map.of()); }
-    @AfterAll static void clean() { CandidateFreezer.cleanup(root); }
     PrFeedbackGateway.PullRequest pr() {return new PrFeedbackGateway.PullRequest("fork/repo",7,branch,"main",git(bare,"rev-parse",branch).strip(),"https://github.com/fork/repo/pull/7",!closed);}
     PrFeedbackGateway.Comment comment() {return new PrFeedbackGateway.Comment("inline:1","Reviewer","Fix selected behavior","value.txt",1,false,commentsRevision,"https://github.com/fork/repo/pull/7#discussion_r1");}
     void drive() {
@@ -151,47 +164,138 @@ class PrFeedbackIntegrationTest {
         return id;
     }
     FeedbackActions.View view() {return actions.view(id);}
+    /** The run page as a person reads it; no state shows a fallback reason or a Java exception. */
+    String runPage() {
+        var text=visibleText(RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class));
+        assertThat(text).doesNotContain("could say why","Exception"); return text;
+    }
     void action(FeedbackActions.Action action) {var v=view(); actions.command(id,new FeedbackActions.Command(v.reviewId(),v.version(),action,v.snapshot()==null?null:v.snapshot().id(),List.of("inline:1"),"Keep both"),"operator");}
     void select() {actions.refresh(id,view().version()); action(FIX);}
     void startRound() {drive(); select(); drive();}
-    @Test void twelveRoundsUseOneExecutionOneBranchAndRenderChronologicalHistory() throws Exception {
+    @Test void twelveRoundsUseOneExecutionOneBranchAndOneTranscriptRunEach() {
         drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
-        verifyNoInteractions(verifier); verify(coding,never()).code(any(),any(),anyInt(),any());
-        for(int round=1;round<=12;round++) {
+        verifyNoInteractions(verifier); verify(coding,never()).code(any(), any(), anyInt(), any(), any());
+        runRounds(12);
+        assertThat(calls).isEqualTo(12); assertThat(git(bare,"rev-list","--count",branch).strip()).isEqualTo("13");
+        // Each feedback round is its own transcript run of the same execution, keyed by the round's attempt id.
+        var transcript=transcripts.read(id);
+        assertThat(transcript).hasSize(12).allSatisfy(entry->assertThat(entry.stepId()).isEqualTo("pr-follow-up"));
+        assertThat(transcript.stream().map(org.folio.factory.app.developer.CodingTranscriptStore.Entry::runId).distinct()).hasSize(12);
+        assertThat(transcript.getLast().runId().toString()).isEqualTo(view().state().attemptId());
+        assertThat(transcript.getLast().detail().path("text").asString()).isEqualTo("Feedback round 12");
+        assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
+    }
+    @Test void theRunPageListsTheRoundsInOrderWithTheTotalAndNoModels() {
+        drive();
+        runRounds(2);
+        var text=visibleText(RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class));
+        // While it waits for comments the card names the pull request and shows the total of the attempt and its rounds.
+        // Round rows name no models: the header has the settings of the attempt.
+        assertThat(text).contains("Round 1","Round 2","Rounds")
+                .containsPattern("\\$\\d+\\.\\d{2} total")
+                .containsPattern(" is (open as a draft|ready for review)")
+                .doesNotContain("Waiting for your review","so far","second-fixture-model");
+        assertThat(text.indexOf("Round 1")).isLessThan(text.indexOf("Round 2"));
+        assertThat(text).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
+    }
+    @Test void aMergedPullRequestCompletesTheRunAndKeepsTheRoundSummary() {
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
+        merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+        assertThat(runPage()).contains("PR merged","Published","Checks passed: 1 test.").doesNotContain("Check PR comments");
+        // The round keeps the agent's own summary.
+        assertThat(view().state().summary()).isEqualTo("Corrected selected feedback");
+        assertThat(view().state().taskSummary()).isEqualTo("PR merged");
+        assertThat(view().state().completionReason()).isEqualTo("MERGED");
+    }
+    /** Rounds on alternating models, each ready again with the pull request at its new commit. */
+    void runRounds(int count) {
+        for(int round=1;round<=count;round++) {
             String model=round%2==0?"second-fixture-model":"fixture-model";
-            when(coding.identity()).thenReturn(Map.of("model",model,"runtime","scripted"));
+            when(coding.identity(any())).thenReturn(Map.of("model",model,"runtime","scripted"));
             usage=Map.of("model",model,"inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
             select(); drive(); assertThat(view().state().phase()).as("round %s reason %s",round,view().state().reason()).isEqualTo(FeedbackState.Phase.READY);
             assertThat(view().state().round()).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha());
         }
-        assertThat(calls).isEqualTo(12); assertThat(git(bare,"rev-list","--count",branch).strip()).isEqualTo("13");
-        assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
+    }
+    @Test void aPublishedRoundCommentsOnThePullRequestOnceWithTheCommitAndTheAgentsSummary() {
+        when(commentWriter.configured()).thenReturn(true);
+        when(commentWriter.post(any(),anyString())).thenReturn("https://github.com/fork/repo/pull/7#issuecomment-1");
+        // The comment goes to GitHub only through the runtime's redaction.
+        when(coding.redact(anyString())).thenAnswer(i->i.<String>getArgument(0).replace("Corrected","[REDACTED]"));
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        var body=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(commentWriter).post(argThat(pr->pr.number()==7&&pr.repository().equals("fork/repo")),body.capture());
+        assertThat(body.getValue()).startsWith("<!-- factory-round "+id+" 1 -->")
+                // Redacted before the cleaning, which escapes the brackets as in the PR body.
+                .contains("Factory round 1: pushed "+view().state().commitSha(),"&#91;REDACTED&#93; selected feedback")
+                .doesNotContain("Corrected");
+        assertThat(roundComments(AuditEventType.CONNECTOR_ACTION)).singleElement().asString()
+                .contains("\"commentUrl\": \"https://github.com/fork/repo/pull/7#issuecomment-1\"","\"round\": 1");
         var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
-        assertThat(html).contains("Round 1","Round 12","Total cost","Factory time","fixture-model","second-fixture-model","0.0072 USD","Work on feedback");
-        assertThat(html).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
-        assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
-        merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
-        assertThat(view().state().summary()).contains("Verified changes published");
-        assertThat(view().state().taskSummary()).isEqualTo("PR merged");
-        assertThat(view().state().completionReason()).isEqualTo("MERGED");
+        // The round links Factory's comment by its URL.
+        assertThat(html).containsPattern("<a [^>]*href=\"https://github.com/fork/repo/pull/7#issuecomment-1\"[^>]*>\\s*Factory's comment on the PR\\s*</a>");
+    }
+    @Test void aFailedPullRequestCommentDoesNotFailTheRound() {
+        when(commentWriter.configured()).thenReturn(true);
+        when(commentWriter.post(any(),anyString())).thenThrow(new IllegalStateException("500 Internal Server Error"));
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        assertThat(view().state().commitSha()).isEqualTo(pr().headSha());
+        assertThat(roundComments(AuditEventType.CONNECTOR_ACTION)).singleElement().asString()
+                .contains("Factory could not comment on the pull request: 500 Internal Server Error").doesNotContain("commentUrl");
+    }
+    @Test void withoutAGitHubTokenTheRoundSkipsItsComment() {
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        verify(commentWriter,never()).post(any(),anyString());
+        assertThat(roundComments(AuditEventType.CONNECTOR_SKIPPED)).singleElement().asString()
+                .contains("GitHub token is not set");
+    }
+    List<String> roundComments(AuditEventType type) {
+        return audit.forExecution(id).stream().filter(e->e.getEventType()==type).map(AuditEvent::getDetail)
+                .filter(d->d.contains("pr-round-comment")).toList();
+    }
+    @Test void aRequestStoredBeforeTheModelsFileStillGetsItsFeedbackRun() {
+        // Runs before 2026-11-03 stored the old env-default profile and a turn limit in their request.
+        var legacy=artifacts.getLatest(id,"dev_coding_request.json").orElseThrow().getContent().replace("\"runSettings\":null",
+                "\"runSettings\":{\"profileId\":\"env-default\",\"effort\":null,\"maxTurns\":40,\"instructions\":\"Keep the API.\"}");
+        artifacts.putMarkdown(id,"dev_coding_request.json",legacy,"fixture");
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        var request=org.mockito.ArgumentCaptor.forClass(CodingRequest.class);
+        verify(coding).code(any(),request.capture(),anyInt(),any(),any());
+        assertThat(request.getValue().runSettings()).isEqualTo(new CodingRequest.RunSettings("env-default",null,"Keep the API."));
     }
     @Test void preservesPartialPatchAcrossQuestionAndFailureThenVerifiesBeforePublishing() {
-        ask=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.QUESTION); assertThat(actions.patch(id)).contains("fix 1");
+        ask=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.QUESTION);
+        assertThat(runPage()).contains("Your answer is needed","Keep both options?","Answer and continue"); assertThat(actions.patch(id)).contains("fix 1");
         assertThat(pr().headSha()).isEqualTo(base); verifyNoInteractions(verifier);
         ask=false; checksFail=true; action(ANSWER); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(runPage()).contains("Action needed","Checks failed: some tests failed.","Checks failed: 1 of 1 tests failed.","Try fixing with the agent","Run checks again").doesNotContain("Independent checks failed");
         assertThat(actions.patch(id)).contains("fix 1","fix 2"); assertThat(pr().headSha()).isEqualTo(base);
         checksFail=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(2);
+    }
+    @Test void checksThatCouldNotRunSayWhyAndTheAgentCanStillTryAgain() {
+        checksCannotRun=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(runPage()).contains("Action needed","Checks could not run: the build environment failed (Docker, network, disk space or time limit).","Try fixing with the agent","Run checks again")
+                .doesNotContain("Independent checks failed","ENVIRONMENT");
+        checksCannotRun=false; action(RETRY_CODE); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(2);
     }
     @Test void rejectsOldSelectionsDuplicateCommandsAndEveryGenericDecision() {
         drive(); var v=actions.refresh(id,view().version());
         for(var d:HitlDecision.values()) assertThatThrownBy(()->decisions.decide(v.reviewId(),d,"operator",null,Map.of())).isInstanceOf(IllegalArgumentException.class);
         var command=new FeedbackActions.Command(v.reviewId(),v.version(),FIX,v.snapshot().id(),List.of("inline:1"),null);
         actions.command(id,command,"operator"); assertThatThrownBy(()->actions.command(id,command,"operator")).isInstanceOf(IllegalStateException.class);
-        commentsRevision="2"; drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED); assertThat(calls).isZero();
+        commentsRevision="2"; drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED);
+        assertThat(runPage()).contains("PR or comments changed; refresh and select again","Check PR comments"); assertThat(calls).isZero();
         assertThatThrownBy(()->actions.command(id,command,"operator")).isInstanceOf(IllegalStateException.class);
     }
     @Test void cleanupFailureBlocksAllActionsUntilExplicitCleanup() {
         cleanupFails=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.CLEANUP_BLOCKED);
+        assertThat(runPage()).contains("Resource cleanup required","Resource still exists","Retry cleanup").doesNotContain("Try fixing with the agent","Check PR comments");
         assertThat(view().actions()).containsExactly(RETRY_CLEANUP); assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->actions.refresh(id,view().version())).isInstanceOf(IllegalStateException.class);
         assertThat(pr().headSha()).isEqualTo(base); assertThat(calls).isEqualTo(1);
@@ -199,13 +303,15 @@ class PrFeedbackIntegrationTest {
     }
     @Test void noChangesProducesVerificationWithoutEmptyCommitAndClosedPrCancels() {
         noChanges=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
-        assertThat(pr().headSha()).isEqualTo(base); verify(verifier).verify(eq(id),anyString(),any(),contains("fork/repo.git"),eq(java.util.Optional.of(PINNED)));
+        assertThat(pr().headSha()).isEqualTo(base); verify(verifier).verify(eq(id),anyString(),any(),contains("fork/repo.git"),anyInt(),eq(java.util.Optional.of(PINNED)));
         closed=true; actions.reconcilePr(id);
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(runPage()).contains("PR closed without merge","No changes").doesNotContain("Check PR comments");
         assertThat(view().state().completionReason()).isEqualTo("CLOSED_WITHOUT_MERGE");
     }
     @Test void failedExportReportsLostEditsKeepsPreviousSnapshotAndUsage() {
         exportFails=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(runPage()).contains("Action needed","Latest edits could not be saved; the previous confirmed patch is retained.","Try fixing with the agent");
         assertThat(view().state().reason()).contains("Latest edits could not be saved"); assertThat(actions.patch(id)).isEmpty();
         assertThat(audit.forExecution(id)).anyMatch(e->e.getEventType()==AuditEventType.STEP_COMPLETED && e.getDetail().contains("inputTokens"));
     }
@@ -217,12 +323,26 @@ class PrFeedbackIntegrationTest {
         var e=state.get(id); e.setCurrentStepIndex(8); executions.save(e); drive();
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED); verifyNoInteractions(gateway);
     }
+    /** A run that started before the starting build pinned a lockfile waits for PR feedback without the artifact. */
+    void waitForFeedbackAsAnEarlierRun() {
+        drive(); jdbc.update("delete from artifact where execution_id=? and name='dev_lockfile.json'",id);
+    }
+    @Test void aRunStartedBeforeFactoryPinnedALockfileStillGetsItsFeedbackRound() {
+        waitForFeedbackAsAnEarlierRun(); select(); drive();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
+        verify(verifier).verify(eq(id),anyString(),any(),anyString(),anyInt(),eq(java.util.Optional.empty()));
+    }
+    @Test void aRunStartedBeforeFactoryPinnedALockfileCompletesWhenItsPullRequestIsMerged() {
+        waitForFeedbackAsAnEarlierRun();
+        merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+    }
     @Test void runWithoutPublishedPrKeepsPreviousCompletionBehaviorWithoutNeedingDocker() {
         artifacts.putMarkdown(id,"dev_delivery.json","{}","fixture"); drive();
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED); verifyNoInteractions(docker,gateway,verifier);
     }
     @Test void outdatedVerificationPolicyBlocksPushUntilCurrentChecksPass() {
         badPolicy=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(runPage()).contains("Action needed","Verification policy changed; run checks again","Run checks again");
         assertThat(view().state().reason()).contains("Verification policy changed"); assertThat(view().actions()).contains(RETRY_CHECKS);
         assertThat(pr().headSha()).isEqualTo(base);
         badPolicy=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
@@ -263,7 +383,8 @@ class PrFeedbackIntegrationTest {
             lease.checked(version->resumable.start(id,9,version,step,UUID.randomUUID(),inputs));
         }
         state.scheduleRetry(id,0,"Simulated process restart after durable start"); drive();
-        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED);
+        assertThat(runPage()).contains("Coding interrupted","The agent was interrupted while it was coding. Its latest changes and cost may be incomplete.","Try fixing with the agent"); assertThat(calls).isZero();
         action(RETRY_CODE); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
     }
     @Test void manualBranchUpdatesAreCheckedWithoutCallingTheAgentOrAddingACommit() throws Exception {
@@ -281,6 +402,7 @@ class PrFeedbackIntegrationTest {
         assertThat(view().actions()).containsExactly(RETRY_CLEANUP);
         action(RETRY_CLEANUP); drive();
         assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
+        assertThat(runPage()).contains("Coding interrupted","Try fixing with the agent");
     }
     @Test void branchChangeBeforeCodingRequiresFreshSelection() throws Exception {
         drive(); select(); engine.advance(claimNext());
@@ -327,6 +449,6 @@ class PrFeedbackIntegrationTest {
         statusFails=false; merged=true; actions.reconcilePr(id); drive();
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
     }
-    void commit(String message) {git(work,"add",".");git(work,"-c","user.name=Fixture","-c","user.email=fixture@example.org","commit","-m",message);}
+    static void commit(String message) {git(work,"add",".");git(work,"-c","user.name=Fixture","-c","user.email=fixture@example.org","commit","-m",message);}
     static String git(Path p,String...args) {return CandidateFreezer.git(p,args);}
 }

@@ -23,17 +23,7 @@ class FlowRegistryIntegrationTest {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @Autowired
-    FlowRegistry registry;
-
-    @Autowired
     FlowRegistryEntryRepository mirror;
-
-    @Test
-    void loadsClasspathFlowsAndValidatesSubFlowReferences() {
-        assertThat(registry.find("fake-parent")).isPresent();
-        assertThat(registry.find("fake-child")).isPresent();
-        assertThat(registry.require("fake-parent").step(1).subFlow().flowId()).isEqualTo("fake-child");
-    }
 
     @Test
     void mirrorsDescriptorsToDatabaseWithContentHash() {

@@ -1,12 +1,12 @@
 package org.folio.factory.core.service;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
@@ -29,9 +29,9 @@ import java.util.UUID;
  * event.
  */
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class StateManager {
-
-    private static final Logger log = LoggerFactory.getLogger(StateManager.class);
 
     private static final TypeReference<Map<String, Integer>> RETRY_COUNTS_TYPE = new TypeReference<>() {
     };
@@ -40,14 +40,6 @@ public class StateManager {
     private final AuditLog auditLog;
     private final JsonMapper jsonMapper;
     private final EngineMetrics metrics;
-
-    public StateManager(PipelineExecutionRepository executions, AuditLog auditLog, JsonMapper jsonMapper,
-                        EngineMetrics metrics) {
-        this.executions = executions;
-        this.auditLog = auditLog;
-        this.jsonMapper = jsonMapper;
-        this.metrics = metrics;
-    }
 
     @Transactional
     public PipelineExecution createExecution(String flowId, String flowVersion, String triggerPayloadJson) {

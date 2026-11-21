@@ -1,22 +1,21 @@
 package org.folio.factory.core.engine;
 
 import jakarta.annotation.PreDestroy;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.service.StateManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongFunction;
 
 /** Keeps blocking agent calls alive without allocating a thread per execution. */
 @Component
+@Slf4j
 public class AgentLeaseHeartbeat {
-
-    private static final Logger log = LoggerFactory.getLogger(AgentLeaseHeartbeat.class);
 
     private final StateManager stateManager;
     private final ScheduledThreadPoolExecutor scheduler;
@@ -82,7 +81,7 @@ public class AgentLeaseHeartbeat {
         }
 
         /** Serialize short ownership checks with renewal; never hold this across workload calls. */
-        public synchronized <T> T checked(java.util.function.LongFunction<T> action) {
+        public synchronized <T> T checked(LongFunction<T> action) {
             renew();
             requireHealthy();
             if (closed) throw new IllegalStateException("Lease is closed");

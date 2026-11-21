@@ -15,8 +15,8 @@
             </div>
             <div class="card">
                 <div class="card-header">
-                    <span class="badge badge-success" th:if="${engine['enabled']}">Running</span>
-                    <span class="badge badge-muted" th:unless="${engine['enabled']}">Disabled</span>
+                    <span class="chip chip-success" th:if="${engine['enabled']}">Running</span>
+                    <span class="chip chip-neutral" th:unless="${engine['enabled']}">Disabled</span>
                 </div>
                 <div class="card-content">
                     <dl class="def-list">
@@ -37,12 +37,12 @@
             <div class="card-grid" th:unless="${#lists.isEmpty(connectors)}">
                 <div class="card" th:each="c : ${connectors}">
                     <div class="card-header">
-                        <h3 class="card-title" th:text="${c['name']}"></h3>
-                        <span class="badge badge-success" th:if="${c['configured']}">Configured</span>
-                        <span class="badge badge-outline" th:unless="${c['configured']}">Not configured</span>
-                        <p class="card-description" th:unless="${c['configured']}">
-                            Sync actions run in advisory mode and are audited as CONNECTOR_SKIPPED.
-                        </p>
+                        <h3 class="card-title" th:text="${c.name()}"></h3>
+                        <span class="chip chip-success" th:if="${c.configured()}">Configured</span>
+                        <span class="chip chip-neutral" th:unless="${c.configured()}">Not configured</span>
+                        <p class="card-description" th:if="${c.note() != null}"><th:block th:text="${c.note()}">Advisory
+                            mode.</th:block> <a class="dev-link" th:if="${c.configurationUrl() != null}"
+                            th:href="@{${c.configurationUrl()}}">Developer Flow configuration</a></p>
                     </div>
                 </div>
             </div>
@@ -59,10 +59,11 @@
                     </thead>
                     <tbody>
                     <tr th:each="f : ${flows}">
-                        <td><a th:href="@{'/flows/' + ${f['id']}}" th:text="${f['id']}"></a></td>
-                        <td th:text="${f['name']}"></td>
-                        <td th:text="${f['version']}"></td>
-                        <td class="muted" th:text="${f['registeredAt']}"></td>
+                        <td><a th:href="@{${f.url()}}" th:text="${f.id()}"></a></td>
+                        <td th:text="${f.name()}"></td>
+                        <td th:text="${f.version()}"></td>
+                        <td class="muted"><time th:replace="~{fragments/components :: pageTime(${f.registeredAt()})}"></time><th:block
+                                th:if="${f.registeredAt() == null}">—</th:block></td>
                     </tr>
                     </tbody>
                 </table>
@@ -75,12 +76,17 @@
                 <h2 class="card-title">Actuator</h2>
             </div>
             <div class="card">
+                <div class="card-header">
+                    <p class="card-description">Raw health and metrics endpoints of the app, for monitoring tools.
+                        Each link opens what the endpoint returns.</p>
+                </div>
                 <div class="card-content">
-                    <nav class="tabs" aria-label="Actuator endpoints">
-                        <a th:href="@{/actuator/health}">Health</a>
-                        <a th:href="@{/actuator/metrics}">Metrics</a>
-                        <a th:href="@{/actuator/prometheus}">Prometheus</a>
-                    </nav>
+                    <dl class="def-list">
+                        <dt>Health</dt><dd><a class="dev-link" th:href="@{/actuator/health}">/actuator/health</a></dd>
+                        <dt>Metrics</dt><dd><a class="dev-link" th:href="@{/actuator/metrics}">/actuator/metrics</a></dd>
+                        <dt>Prometheus</dt><dd><a class="dev-link"
+                                th:href="@{/actuator/prometheus}">/actuator/prometheus</a></dd>
+                    </dl>
                 </div>
             </div>
         </section>

@@ -5,7 +5,7 @@
 <section class="page-body">
     <div class="page-header">
         <h1>Artifacts</h1>
-        <p class="page-description">Immutable artifact versions across all executions, most recent first.</p>
+        <p class="page-description">Immutable artifact versions across all runs, most recent first.</p>
     </div>
 
     <form class="filter-bar" method="get" th:action="@{/artifacts}">
@@ -29,17 +29,17 @@
         <div class="table-wrap">
             <table>
                 <thead>
-                <tr><th>Artifact</th><th>Version</th><th>Flow</th><th>Execution</th><th>Created by</th><th>Created</th></tr>
+                <tr><th>Artifact</th><th>Version</th><th>Flow</th><th>Run</th><th>Created by</th><th>Created</th></tr>
                 </thead>
                 <tbody>
                 <tr th:each="a : ${artifacts}">
                     <td><a th:href="@{'/artifacts/' + ${a['id']}}" th:text="${a['name']}"></a></td>
                     <td th:text="'v' + ${a['version']}"></td>
-                    <td><span th:if="${a['flowId']}" th:text="${a['flowId']}"></span>
-                        <span th:unless="${a['flowId']}" class="muted">—</span></td>
-                    <td><a th:href="@{'/executions/' + ${a['executionId']}}" th:text="${a['executionShort']}"></a></td>
+                    <td class="nowrap"><span th:if="${a['flowName']}" th:text="${a['flowName']}"></span>
+                        <span th:unless="${a['flowName']}" class="muted">—</span></td>
+                    <td class="nowrap"><a th:href="@{'/executions/' + ${a['executionId']}}" th:text="${a['runName']}"></a></td>
                     <td class="muted" th:text="${a['createdBy']}"></td>
-                    <td class="muted" th:text="${a['createdAt']}"></td>
+                    <td class="muted"><time th:replace="~{fragments/components :: pageTime(${a['createdAt']})}"></time></td>
                 </tr>
                 </tbody>
             </table>

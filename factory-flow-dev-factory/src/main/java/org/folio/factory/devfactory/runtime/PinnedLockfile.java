@@ -54,8 +54,8 @@ public record PinnedLockfile(String sha256, String content, String packageJsonBl
      * lockfile was generated for, otherwise a plain install that keeps the pins and resolves only what is new.
      */
     public InstallMode installMode(java.nio.file.Path checkout) {
-        return packageJsonBlob.equals(org.folio.factory.devfactory.candidate.CandidateFreezer.trackedBlob(checkout, "package.json"))
-                ? InstallMode.FROZEN : InstallMode.RESOLVE;
+        String current = org.folio.factory.devfactory.candidate.CandidateFreezer.trackedBlob(checkout, "package.json");
+        return packageJsonBlob.equals(current) ? InstallMode.FROZEN : InstallMode.RESOLVE;
     }
 
     public PinnedLockfile forPackageJson(String blob) {

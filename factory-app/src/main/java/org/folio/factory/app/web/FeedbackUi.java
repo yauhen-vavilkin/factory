@@ -2,148 +2,188 @@ package org.folio.factory.app.web;
 
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 
+import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.tasks.presentation.FeedbackStanding;
+import org.folio.factory.app.tasks.presentation.TaskView;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
 import org.folio.factory.devfactory.feedback.FeedbackState;
-import org.folio.factory.devfactory.feedback.PrFeedbackGateway;
 import org.springframework.stereotype.Component;
 import org.springframework.ui.Model;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 
 @Component
+@RequiredArgsConstructor
 public class FeedbackUi {
+    private static final String MANUAL_NOTE =
+            "Runs the checks on commits you pushed to the PR branch yourself. No agent, no cost.";
+
     private final FeedbackActions actions;
+    private final ArtifactStore artifactStore;
+    private final PipelineExecutionRepository executions;
 
-    public FeedbackUi(FeedbackActions actions) {
-        this.actions = actions;
+    /**
+     * Where PR feedback stands on the run of this task's pull request, as the stored state and comments say: My
+     * tasks and the task page do not ask GitHub.
+     */
+    public FeedbackStanding standing(TaskView task) {
+        if (task.pullRequestUrl() == null || task.attempts().isEmpty()) {
+            return FeedbackStanding.NONE;
+        }
+        return task.standingAttempt().map(TaskView.AttemptHistoryEntry::executionId)
+                .flatMap(executions::findById).map(this::standing).orElse(FeedbackStanding.NONE);
     }
 
-    public void populate(
-            PipelineExecution execution,
-            List<Artifact> artifacts,
-            List<AuditEvent> events,
-            Model model) {
-        var projection = new AttemptUsageSummary.Projection(events);
-        if (!VERSION.equals(execution.getFlowVersion())) return;
-
-        boolean live = execution.getStatus() == ExecutionStatus.RUNNING;
-        populateUsage(projection, live, model);
-        if (artifacts.stream().noneMatch(artifact -> artifact.getName().equals(STATE))) return;
+    private FeedbackStanding standing(PipelineExecution execution) {
+        var artifacts = artifactStore.allForExecution(execution.getId());
+        if (!hasFeedback(execution, artifacts)) {
+            return FeedbackStanding.NONE;
+        }
         var view = actions.view(execution.getId());
-        if (view.state().phase() == FeedbackState.Phase.SKIPPED) return;
-
-        var history = History.from(artifacts);
-        var data = feedbackControls(view);
-        data.put("comments", comments(view.snapshot(), history.processed()));
-        data.put("rounds", roundCards(history.rounds(), projection, live));
-        model.addAttribute("feedback", data);
-    }
-
-    private static void populateUsage(
-            AttemptUsageSummary.Projection projection, boolean live, Model model) {
-        var initial = projection.summary(-1, live);
-        model.addAttribute("attemptUsage", projection.summary(null, live));
-        model.addAttribute("initialUsage", initial);
-        var totals = new LinkedHashMap<String, Object>();
-        totals.put("present", initial.get("present"));
-        totals.put("coding", true);
-        totals.put("total", initial.get("tokensDisplay"));
-        ((Map<?, ?>) initial.get("breakdown")).forEach(
-                (category, count) -> totals.put(
-                        category.toString(), UiFormat.count(((Number) count).longValue())));
-        model.addAttribute("tokenTotals", totals);
-        model.addAttribute("estimatedCost", null);
-        model.addAttribute("usageIncomplete", initial.get("partial"));
-    }
-
-    private static Map<String, Object> feedbackControls(FeedbackActions.View view) {
         var state = view.state();
-        var data = new LinkedHashMap<String, Object>();
-        data.put("version", view.version());
-        data.put("reviewId", view.reviewId());
-        data.put("phase", state.phase() == FeedbackState.Phase.FINISHED
-                && !"MERGED".equals(state.completionReason()) ? "Task finished" : label(state.phase()));
-        data.put("reason", state.phase() == FeedbackState.Phase.FINISHED
-                ? state.taskSummary() : state.reason());
-        data.put("refresh", view.reviewId() != null && state.pr() != null
-                && !view.actions().isEmpty()
-                && !view.actions().contains(FeedbackActions.Action.RETRY_CLEANUP));
-        data.put("fix", view.actions().contains(FeedbackActions.Action.FIX));
-        data.put("answer", view.actions().contains(FeedbackActions.Action.ANSWER));
-        data.put("snapshotId", view.snapshot() == null ? "" : view.snapshot().id());
-        data.put("actions", view.actions().stream()
-                .filter(action -> action != FeedbackActions.Action.FIX
-                        && action != FeedbackActions.Action.ANSWER)
-                .map(action -> Map.of("value", action.name(), "label", actionLabel(action)))
-                .toList());
-        return data;
+        return switch (state.phase()) {
+            case SKIPPED -> FeedbackStanding.NONE;
+            case STOPPED, FINISHED -> ended(state);
+            default -> openStanding(execution, view, artifacts);
+        };
     }
 
-    private static List<Map<String, Object>> comments(
-            PrFeedbackGateway.Snapshot snapshot, Set<String> processed) {
-        if (snapshot == null) return List.of();
-        var comments = new ArrayList<Map<String, Object>>();
-        for (var comment : snapshot.comments()) {
-            var row = new LinkedHashMap<String, Object>();
-            row.put("id", comment.id());
-            row.put("author", comment.author());
-            row.put("body", comment.body());
-            row.put("location", comment.path().isBlank() ? "PR discussion"
-                    : comment.path() + (comment.line() == null ? "" : ":" + comment.line()));
-            row.put("outdated", comment.outdated());
-            row.put("processed", processed.contains(comment.id()));
-            comments.add(row);
+    /** MERGED or CLOSED once PR feedback has seen the pull request merged or closed without merge. */
+    private static FeedbackStanding ended(FeedbackState state) {
+        return switch (state.phase()) {
+            case STOPPED -> FeedbackStanding.CLOSED;
+            case FINISHED -> "MERGED".equals(state.completionReason()) ? FeedbackStanding.MERGED
+                    : FeedbackStanding.NONE;
+            default -> FeedbackStanding.NONE;
+        };
+    }
+
+    private static FeedbackStanding openStanding(PipelineExecution execution, FeedbackActions.View view,
+                                                 List<Artifact> artifacts) {
+        var comments = FeedbackRows.newComments(view.snapshot(), History.from(artifacts).processed());
+        if (feedback(view, comments, List.of()).yourTurn()) {
+            return FeedbackStanding.WAITS_FOR_YOU;
         }
-        return comments;
+        var works = execution.getStatus() == ExecutionStatus.RUNNING && !view.state().waiting();
+        return works ? FeedbackStanding.WORKING : FeedbackStanding.NONE;
     }
 
-    private static List<Map<String, Object>> roundCards(
-            TreeMap<Integer, FeedbackState> rounds,
-            AttemptUsageSummary.Projection projection,
-            boolean live) {
-        var cards = new ArrayList<Map<String, Object>>();
-        int correction = 0;
-        int manual = 0;
-        for (var entry : rounds.entrySet()) {
-            var state = entry.getValue();
-            var card = new LinkedHashMap<String, Object>();
-            card.put("round", entry.getKey());
-            card.put("open", entry.getKey().equals(rounds.lastKey()));
-            card.put("title", state.manual()
-                    ? "Manual verification " + (++manual) : "Round " + (++correction));
-            card.put("manual", state.manual());
-            card.put("phase", roundPhase(state));
-            card.put("summary", state.summary());
-            card.put("reason", state.reason());
-            card.put("commit", state.commitSha());
-            card.put("selected", state.selected().stream()
-                    .map(comment -> Map.of("author", comment.author(), "body", comment.body()))
-                    .toList());
-            card.put("usage", projection.summary(entry.getKey(), live));
-            card.put("runtime", state.runtimeName());
-            card.put("verification", state.verification());
-            card.put("activity", projection.activity(entry.getKey()));
-            cards.add(card);
+    private static boolean hasFeedback(PipelineExecution execution, List<Artifact> artifacts) {
+        return VERSION.equals(execution.getFlowVersion())
+                && artifacts.stream().anyMatch(artifact -> artifact.getName().equals(STATE));
+    }
+
+    /**
+     * Puts the PR feedback part of the run page into the model; empty when the run has no PR feedback, so the
+     * page shows no such part.
+     */
+    public Optional<Summary> populate(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events,
+                                      AttemptUsageSummary.Projection projection, Model model) {
+        if (!hasFeedback(execution, artifacts)) {
+            return Optional.empty();
         }
-        return cards;
+        var view = actions.view(execution.getId());
+        var phase = view.state().phase();
+        if (phase == FeedbackState.Phase.SKIPPED) {
+            return Optional.empty();
+        }
+        boolean live = execution.getStatus() == ExecutionStatus.RUNNING;
+        var history = History.from(artifacts);
+        var rounds = FeedbackRows.rounds(history.rounds(),
+                new FeedbackRows.RoundFacts(projection, live, FeedbackRows.commentUrls(events)));
+        var feedback = feedback(view, FeedbackRows.newComments(view.snapshot(), history.processed()), rounds);
+        model.addAttribute("feedback", feedback);
+        var waiting = phase == FeedbackState.Phase.READY || phase == FeedbackState.Phase.INIT;
+        return Optional.of(new Summary(feedback.phase(), waiting, !rounds.isEmpty(), feedback.yourTurn(),
+                ended(view.state())));
     }
 
-    private static String roundPhase(FeedbackState state) {
-        if (state.phase() != FeedbackState.Phase.READY) return label(state.phase());
-        if (!state.commitSha().isBlank()) return "Changes published";
-        return state.manual() ? "Manual changes verified" : "No changes needed";
+    /** The rounds the agent worked on the run, with their titles on the run page; empty without PR feedback. */
+    static List<FeedbackRows.RoundStart> roundStarts(PipelineExecution execution, List<Artifact> artifacts) {
+        if (!VERSION.equals(execution.getFlowVersion())) {
+            return List.of();
+        }
+        return FeedbackRows.starts(History.from(artifacts).rounds());
+    }
+
+    /**
+     * What the status card says about PR feedback: the phase in words, whether it waits for new comments or is
+     * still getting ready to (the card then names the pull request), and whether rounds ran, so the amount is the
+     * total; {@code yourTurn} says that a question or new PR comments wait for the developer; {@code ended} is
+     * MERGED or CLOSED once the pull request is, so the card names it as the task page does, and NONE before.
+     */
+    public record Summary(String headline, boolean waiting, boolean rounds, boolean yourTurn,
+                          FeedbackStanding ended) {
+    }
+
+    /**
+     * The PR feedback part of the run page: the phase in words and its reason, which forms it offers, the new PR
+     * comments and the rounds. {@code reason} is null when there is none.
+     */
+    public record Feedback(int version, UUID reviewId, String phase, String reason, boolean refresh, boolean fix,
+                           boolean answer, String snapshotId, List<ActionButton> actions,
+                           List<FeedbackRows.Comment> comments, List<FeedbackRows.Round> rounds) {
+
+        /** The agent's question or new PR comments wait for the developer. */
+        public boolean yourTurn() {
+            return answer || fixPending();
+        }
+
+        /** New PR comments wait for the developer to choose the ones to fix. */
+        public boolean fixPending() {
+            return fix && !comments.isEmpty();
+        }
+
+        /** Fix is the primary button, unless the agent's question waits for an answer too. */
+        public String fixButtonClass() {
+            return answer ? "btn btn-secondary btn-sm" : "btn btn-primary btn-sm";
+        }
+
+        /** Says how to get new comments when the page offers to check for them. */
+        public String emptyNote() {
+            return refresh ? "No new comments. Add review comments on GitHub, then press Check PR comments."
+                    : "No new comments.";
+        }
+    }
+
+    /** A button that sends one feedback action; {@code note} is null when the button needs none. */
+    public record ActionButton(String value, String label, String note) {
+    }
+
+    private static Feedback feedback(FeedbackActions.View view, List<FeedbackRows.Comment> comments,
+                                     List<FeedbackRows.Round> rounds) {
+        var state = view.state();
+        var finished = state.phase() == FeedbackState.Phase.FINISHED;
+        var phase = finished && !"MERGED".equals(state.completionReason()) ? "Task finished" : label(state.phase());
+        var reason = finished ? state.taskSummary() : state.reason();
+        var refresh = view.reviewId() != null && state.pr() != null && !view.actions().isEmpty()
+                && !view.actions().contains(FeedbackActions.Action.RETRY_CLEANUP);
+        return new Feedback(view.version(), view.reviewId(), phase, reason == null || reason.isBlank() ? null : reason,
+                refresh, view.actions().contains(FeedbackActions.Action.FIX),
+                view.actions().contains(FeedbackActions.Action.ANSWER),
+                view.snapshot() == null ? "" : view.snapshot().id(), buttons(view.actions()), comments, rounds);
+    }
+
+    /** Fix and Answer have forms of their own, so they get no button here. */
+    private static List<ActionButton> buttons(List<FeedbackActions.Action> actions) {
+        return actions.stream()
+                .filter(action -> action != FeedbackActions.Action.FIX && action != FeedbackActions.Action.ANSWER)
+                .map(action -> new ActionButton(action.name(), actionLabel(action),
+                        action == FeedbackActions.Action.MANUAL_CONTINUE ? MANUAL_NOTE : null))
+                .toList();
     }
 
     private record History(Set<String> processed, TreeMap<Integer, FeedbackState> rounds) {
@@ -188,13 +228,9 @@ public class FeedbackUi {
         }
     }
 
-    static String duration(long s) {
-        return s / 3600 + "h " + s % 3600 / 60 + "m " + s % 60 + "s";
-    }
-
     static String label(FeedbackState.Phase p) {
         return switch (p) {
-            case READY -> "Awaiting PR feedback";
+            case READY -> "Waiting for your review";
             case PREPARE -> "Preparing selected feedback";
             case CODE -> "Implementing corrections";
             case VERIFY -> "Running independent checks";
@@ -203,7 +239,7 @@ public class FeedbackUi {
             case QUESTION -> "Your answer is needed";
             case FAILURE -> "Action needed";
             case REFRESH_REQUIRED -> "Refresh PR and select comments again";
-            case INTERRUPTED -> "Coding attempt interrupted";
+            case INTERRUPTED -> "Coding interrupted";
             case CLEANUP_BLOCKED -> "Resource cleanup required";
             case FINISHED -> "PR merged";
             case STOPPED -> "PR closed without merge";

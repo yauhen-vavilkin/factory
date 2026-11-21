@@ -93,6 +93,10 @@ factory.dev-factory:
         authorized: true
 ```
 
+Now: `delivery.targets` and `authorized` are gone. Each entry in `config/developer-repositories.yaml`
+has its own `delivery.repository`, `folio-org/<repo>` by default, and there is no fork rule; see
+section 3 of [dev-flow-ui-runbook.md](dev-flow-ui-runbook.md).
+
 Receipts: add `toolchain` (missing → `maven`, so historical receipts stay readable) and a
 toolchain-neutral report count; keep the existing JSON field names, as `pr-feedback.md`
 already requires. `VerificationPolicy.matches` also compares the toolchain and the trusted
@@ -256,22 +260,23 @@ Result, on the pilot machine (Windows + Podman on WSL, full Compose stack, Pi + 
 
 - **Run 1** passed the starting build and verification, but delivery was blocked: Compose
   did not forward `FACTORY_UI_USERS_DELIVERY_REPO` into the Factory container, so the target
-  fell back to `folio-org/ui-users`, which Factory refuses by design. Compose now forwards the
-  `_SOURCE_REPO` and `_DELIVERY_REPO` variables for `ui-users` and for the four backend
+  fell back to `folio-org/ui-users`, which Factory refused by design then (now it delivers there).
+  Compose now forwards the `_SOURCE_REPO` and `_DELIVERY_REPO` variables for `ui-users` and for the four backend
   repositories (the backend eight had the same gap, so any Compose delivery to a fork was
   blocked).
 - **Run 2** opened `Dmytro-Melnyshyn/ui-users` PR #1 (3 files, +16 −1): `UserEdit.js` skips the
   Keycloak dialog for a Patron created on a member tenant, `withUserRoles.js` shows it when a
   Patron is changed to another type, plus a changelog entry. Delivery is **automatic**:
-  `publish` is an agent step gated by the verification receipt and `authorized: true`, with no
-  approval gate before it. The human gates are the repository and coding questions and the PR
+  `publish` is an agent step gated by the verification receipt and `authorized: true` (now by the
+  receipt only), with no approval gate before it. The human gates are the repository and coding questions and the PR
   follow-up.
 - **Round 1:** a plain PR discussion comment asking for tests (UserEdit and `withUserRoles`)
   produced commit `e1e747c` on the PR branch: two test files (+114 lines), verification PASS
   with 1643 tests (1639 before), 0 failures. Round usage was 651k input and 14k output tokens.
 - **Model use:** about 202k–319k input and 6k–8k output tokens per initial attempt.
-  `claude-sonnet-5-5` has no entry in `config/developer-pricing.yaml`, so the estimate shows 0;
-  add a rate to price it.
+  `claude-sonnet-5-5` had no rate in the pricing file of that time, so the estimate showed 0.
+  Now: prices are in `config/developer-models.yaml`, and the rule for a Pi run is in section 4 of
+  [dev-flow-ui-runbook.md](dev-flow-ui-runbook.md); under Pi, Sonnet still shows no estimate.
 - **Agent setup:** in both initial attempts Pi reported it could not run any tests because
   `node_modules` was missing; run 1 still added a test, run 2 added none. Once the comment said
   "run the suite before pushing", the round added and ran its tests. Resolved by phase 5: Factory

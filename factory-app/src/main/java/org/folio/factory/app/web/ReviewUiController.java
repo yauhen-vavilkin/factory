@@ -1,10 +1,18 @@
 package org.folio.factory.app.web;
 
+import jakarta.servlet.http.HttpServletRequest;
+
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
+import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
+import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.repository.HitlReviewRepository;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
+import org.folio.factory.devfactory.feedback.FeedbackWorker;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -24,7 +32,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+
+import static org.folio.factory.app.web.TaskUiController.requireSameOrigin;
 
 /**
  * Server-rendered HITL console: a review inbox and a review detail page with
@@ -32,24 +44,29 @@ import java.util.UUID;
  * service the REST API uses.
  */
 @Controller
+@RequiredArgsConstructor
 public class ReviewUiController {
 
     private static final String ARTIFACT_FIELD_PREFIX = "artifact:";
+    private static final int PAGE_SIZE = 50;
+    private static final List<String> STATUS_TABS =
+            List.of("PENDING", "APPROVED", "AMENDED", "REJECTED", "ALL");
 
     private final HitlReviewRepository reviews;
     private final HitlDecisionService decisionService;
     private final JsonMapper jsonMapper;
+    private final PipelineExecutionRepository executions;
+    private final FlowRegistry flowRegistry;
 
-    public ReviewUiController(HitlReviewRepository reviews, HitlDecisionService decisionService,
-                              JsonMapper jsonMapper) {
-        this.reviews = reviews;
-        this.decisionService = decisionService;
-        this.jsonMapper = jsonMapper;
+    /**
+     * One inbox row. A Developer Flow run that waits for PR comments is named by its task key and opens its run
+     * page, where its PR feedback is worked; every other review opens the review page. {@code flowName} is the
+     * name the Executions list shows, {@code gate} the gate id in the words the Definition tab uses for an id.
+     */
+    public record ReviewRow(UUID id, String title, String flowName, String gate, PageTime createdAt,
+                            HitlReviewStatus status, String decision, String reviewer, PageTime decidedAt, String url,
+                            String action) {
     }
-
-    private static final int PAGE_SIZE = 50;
-    private static final List<String> STATUS_TABS =
-            List.of("PENDING", "APPROVED", "AMENDED", "REJECTED", "ALL");
 
     @GetMapping("/reviews")
     public String reviews(@RequestParam(name = "status", defaultValue = "PENDING") String status,
@@ -68,7 +85,8 @@ public class ReviewUiController {
                     : reviews.findByStatus(HitlReviewStatus.valueOf(selected), pageable);
             rows = paged.getContent();
         }
-        model.addAttribute("reviews", rows.stream().map(this::reviewRow).toList());
+        var taskKeys = prFeedbackTaskKeys(rows);
+        model.addAttribute("reviews", rows.stream().map(review -> reviewRow(review, taskKeys)).toList());
         model.addAttribute("statusTabs", STATUS_TABS);
         model.addAttribute("selectedStatus", selected);
         model.addAttribute("showDecision", !"PENDING".equals(selected));
@@ -103,7 +121,8 @@ public class ReviewUiController {
                          @RequestParam("reviewer") String reviewer,
                          @RequestParam(name = "comments", required = false) String comments,
                          @RequestParam Map<String, String> allParams,
-                         RedirectAttributes redirect) {
+                         HttpServletRequest request, RedirectAttributes redirect) {
+        requireSameOrigin(request);
         // The whole form processing sits inside one try so validation failures
         // redirect back to the review page instead of falling through to the
         // REST API's JSON exception handler. Unchanged-artifact filtering happens
@@ -131,18 +150,38 @@ public class ReviewUiController {
         }
     }
 
-    private Map<String, Object> reviewRow(HitlReview review) {
+    private ReviewRow reviewRow(HitlReview review, Map<UUID, String> taskKeys) {
         JsonNode reviewPackage = jsonMapper.readTree(review.getReviewPackage());
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", review.getId());
-        row.put("title", reviewPackage.path("title").asString());
-        row.put("flowId", reviewPackage.path("flowId").asString());
-        row.put("gateId", review.getGateId());
-        row.put("createdAt", UiFormat.format(review.getCreatedAt()));
-        row.put("status", review.getStatus());
-        row.put("decision", review.getDecision());
-        row.put("reviewer", review.getReviewer());
-        row.put("decidedAt", UiFormat.format(review.getDecidedAt()));
-        return row;
+        var flowId = reviewPackage.path("flowId").asString();
+        var taskKey = isPrFeedback(review, flowId) ? taskKeys.get(review.getExecutionId()) : null;
+        var title = taskKey == null ? reviewPackage.path("title").asString() : "Waiting for PR comments: " + taskKey;
+        var url = taskKey == null ? "/reviews/" + review.getId()
+                : "/executions/" + review.getExecutionId() + "#pr-feedback";
+        return new ReviewRow(review.getId(), title, UiFormat.flowName(flowRegistry, flowId),
+                UiFormat.inWords(review.getGateId()),
+                PageTime.day(review.getCreatedAt()), review.getStatus(), review.getDecision(),
+                review.getReviewer(), PageTime.day(review.getDecidedAt()), url,
+                taskKey == null ? "Review" : "Open run");
+    }
+
+    /** The task key of each run that waits for PR comments, read in one query for the whole page. */
+    private Map<UUID, String> prFeedbackTaskKeys(List<HitlReview> rows) {
+        Set<UUID> ids = rows.stream().filter(review -> FeedbackWorker.GATE_ID.equals(review.getGateId()))
+                .map(HitlReview::getExecutionId).collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return executions.findAllById(ids).stream()
+                .filter(execution -> DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId()))
+                .filter(execution -> !taskKey(execution).isBlank())
+                .collect(Collectors.toMap(PipelineExecution::getId, this::taskKey));
+    }
+
+    private String taskKey(PipelineExecution execution) {
+        return UiFormat.parse(execution.getTriggerPayload(), jsonMapper).path("issueKey").asString("");
+    }
+
+    private static boolean isPrFeedback(HitlReview review, String flowId) {
+        return FeedbackWorker.GATE_ID.equals(review.getGateId()) && DevFactoryConfiguration.FLOW_ID.equals(flowId);
     }
 }

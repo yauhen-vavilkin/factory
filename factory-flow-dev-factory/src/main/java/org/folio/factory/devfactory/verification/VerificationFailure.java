@@ -18,9 +18,11 @@ public enum VerificationFailure {
     private static final List<String> NETWORK_MARKERS = List.of("connection refused", "connection timed out",
             "read timed out", "unknownhostexception", "could not resolve dependencies", "could not transfer artifact",
             "network is unreachable", "accessdeniedexception");
+    private static final Pattern COMPILE_ERROR_LOCATION = Pattern.compile("(?m).*\\.java:\\[[0-9]+,[0-9]+].*");
 
     public boolean repairable() { return this == CANDIDATE; }
 
+    /** For Maven verification, the only toolchain before yarn plans existed. */
     static VerificationFailure classify(String result, String diagnostics, boolean invalid,
                                         boolean insufficient, Integer failures, Integer errors) {
         return classify(Toolchain.MAVEN, result, diagnostics, invalid, insufficient, failures, errors);
@@ -31,7 +33,20 @@ public enum VerificationFailure {
         if ("PASS".equals(result)) return NONE;
         if (invalid) return INVALID_EVIDENCE;
         String text = diagnostics.toLowerCase(Locale.ROOT);
-        boolean environment = INFRASTRUCTURE_MARKERS.stream().anyMatch(text::contains) || switch (toolchain) {
+        if (isEnvironment(toolchain, text, diagnostics)) return ENVIRONMENT;
+        if (toolchain == Toolchain.MAVEN && text.contains("[error] compilation error")
+                && COMPILE_ERROR_LOCATION.matcher(text).find())
+            return CANDIDATE_COMPILE;
+        if (insufficient) return INSUFFICIENT_EVIDENCE;
+        // Exceptions may be infrastructure failures. Only actual assertion failures are eligible.
+        if (failures != null && failures > 0 && errors != null && errors == 0 && isAssertion(toolchain, text))
+            return CANDIDATE;
+        return UNKNOWN;
+    }
+
+    private static boolean isEnvironment(Toolchain toolchain, String text, String diagnostics) {
+        if (INFRASTRUCTURE_MARKERS.stream().anyMatch(text::contains)) return true;
+        return switch (toolchain) {
             case MAVEN -> NETWORK_MARKERS.stream().anyMatch(text::contains);
             // Jest output can legitimately mention network errors, so only yarn's own error lines count.
             case YARN -> YarnBaselineOutput.isTransientDownloadFailure(diagnostics)
@@ -39,22 +54,14 @@ public enum VerificationFailure {
                     .filter(line -> line.startsWith("error "))
                     .anyMatch(line -> NETWORK_MARKERS.stream().anyMatch(line::contains));
         };
-        if (environment) return ENVIRONMENT;
-        boolean compileError = switch (toolchain) {
-            case MAVEN -> text.contains("[error] compilation error")
-                    && Pattern.compile("(?m).*\\.java:\\[[0-9]+,[0-9]+].*").matcher(text).find();
-            case YARN -> false;
-        };
-        if (compileError) return CANDIDATE_COMPILE;
-        if (insufficient) return INSUFFICIENT_EVIDENCE;
-        // Exceptions may be infrastructure failures. Only actual assertion failures are eligible.
-        boolean assertion = switch (toolchain) {
+    }
+
+    private static boolean isAssertion(Toolchain toolchain, String text) {
+        return switch (toolchain) {
             case MAVEN -> text.contains("assertionfailederror") || text.contains("assertionerror")
                     || text.contains("expected:") && text.contains("but was:");
             case YARN -> text.contains("expect(received)") || text.contains("assertionerror")
                     || text.contains("expected:") && text.contains("received:");
         };
-        if (failures != null && failures > 0 && errors != null && errors == 0 && assertion) return CANDIDATE;
-        return UNKNOWN;
     }
 }

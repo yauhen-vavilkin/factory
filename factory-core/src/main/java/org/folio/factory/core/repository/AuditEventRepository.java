@@ -19,8 +19,6 @@ public interface AuditEventRepository extends Repository<AuditEvent, Long> {
 
     List<AuditEvent> findByExecutionIdOrderByIdAsc(UUID executionId);
 
-    List<AuditEvent> findTop200ByOrderByIdDesc();
-
     // Slice, not Page: the table is append-only and unbounded, so the count(*) a
     // Page would issue per request becomes an ever-growing full-table scan.
     Slice<AuditEvent> findAllByOrderByIdDesc(Pageable pageable);

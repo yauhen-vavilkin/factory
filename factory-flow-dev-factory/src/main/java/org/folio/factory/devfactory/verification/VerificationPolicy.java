@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.verification;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
@@ -8,14 +9,10 @@ import org.folio.factory.devfactory.runtime.InstallMode;
 import java.util.Arrays;
 
 /** Current trusted configuration, separate from the receipt's immutable candidate identity. */
+@RequiredArgsConstructor
 public final class VerificationPolicy {
     private final DevFactoryProperties repositories;
     private final DevRuntimeProperties runtime;
-
-    public VerificationPolicy(DevFactoryProperties repositories, DevRuntimeProperties runtime) {
-        this.repositories = repositories;
-        this.runtime = runtime;
-    }
 
     public boolean matches(Candidate candidate, VerificationReceipt receipt) {
         var repository = repositories.repositories().get(candidate.repository());

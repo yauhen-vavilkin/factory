@@ -1,0 +1,11 @@
+id: fake-post-rejected
+name: Fake Post-Processor Rejection Flow
+version: 1.0.0
+retry_policy:
+  max_attempts: 2
+  backoff_seconds: [0]
+agent_chain:
+  - step_id: gated
+    type: AGENT
+    worker_id: echo-worker
+    outputs: [rejected.md]

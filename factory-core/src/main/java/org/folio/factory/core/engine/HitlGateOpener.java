@@ -1,5 +1,6 @@
 package org.folio.factory.core.engine;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -25,6 +26,7 @@ import java.util.Map;
  * through the same review inbox with the reserved gate id {@code escalation}.
  */
 @Component
+@RequiredArgsConstructor
 public class HitlGateOpener {
 
     public static final String ESCALATION_GATE_ID = "escalation";
@@ -34,15 +36,6 @@ public class HitlGateOpener {
     private final StateManager stateManager;
     private final AuditLog auditLog;
     private final JsonMapper jsonMapper;
-
-    public HitlGateOpener(HitlReviewRepository reviews, ArtifactStore artifactStore,
-                          StateManager stateManager, AuditLog auditLog, JsonMapper jsonMapper) {
-        this.reviews = reviews;
-        this.artifactStore = artifactStore;
-        this.stateManager = stateManager;
-        this.auditLog = auditLog;
-        this.jsonMapper = jsonMapper;
-    }
 
     @Transactional
     public HitlReview openGate(PipelineExecution execution, StepDescriptor step) {

@@ -1,8 +1,14 @@
 spring:
+  config:
+    import:
+      - classpath:developer-repositories.yaml
+      - optional:file:./config/developer-repositories.yaml
+      - classpath:developer-models.yaml
+      - optional:file:./config/developer-models.yaml
   application:
     name: ai-factory
   lifecycle:
-    # OPS-2: grace-period budget for each SmartLifecycle shutdown phase — chiefly the
+    # Grace-period budget for each SmartLifecycle shutdown phase — chiefly the
     # web server draining in-flight HTTP (HITL console, REST, webhooks) before exit.
     # Bounded well under the engine lease so a rollout never hangs.
     timeout-per-shutdown-phase: ${FACTORY_SHUTDOWN_PHASE_TIMEOUT:60s}
@@ -11,7 +17,7 @@ spring:
     username: ${FACTORY_DB_USER:factory}
     password: ${FACTORY_DB_PASSWORD:factory}
     hikari:
-      # PERF-1: sized to concurrency, not request volume — the LLM/Karate work runs
+      # Sized to concurrency, not request volume — the LLM/Karate work runs
       # outside any transaction, so connections are borrowed only for sub-second
       # bursts. maximum-pool-size = worker-threads(4) + scheduler(2) + web headroom(8)
       # + flyway/misc(2) = 16. Raise FACTORY_DB_POOL_MAX in lockstep with worker-threads.
@@ -29,9 +35,19 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
-  # REL-1: outbound HTTP client timeouts for the auto-configured RestClient.Builder
-  # the Jira/GitHub/TestRail connectors clone (Spring Boot 4 plural `clients`
-  # namespace). The Anthropic LLM client uses its own transport and is unaffected.
+  # Every @{/css/...}, @{/js/...} and @{/webjars/...} link in a page gets a content hash, so a
+  # browser never mixes an old cached file with new HTML. Long caching of /css and /js:
+  # StaticResourceConfiguration.
+  web:
+    resources:
+      chain:
+        strategy:
+          content:
+            enabled: true
+  # Outbound HTTP client timeouts, so a hung Jira, GitHub or TestRail call fails instead of
+  # blocking its thread. They apply to the auto-configured RestClient.Builder the connectors
+  # clone (Spring Boot 4 plural `clients` namespace). The Anthropic LLM client uses its own
+  # transport and is unaffected.
   # Values are Durations; env overrides must also be Durations (e.g. 10s, 500ms).
   http:
     clients:
@@ -44,8 +60,8 @@ spring:
       api-key: ${ANTHROPIC_API_KEY:}
       chat:
         options:
-          model: ${FACTORY_LLM_MODEL:claude-sonnet-4-5}
-          max-tokens: 8192
+          model: ${FACTORY_LLM_MODEL:claude-sonnet-5-5}
+          max-tokens: 16384
     # Any OpenAI-compatible endpoint (Groq, Gemini, OpenRouter, local Ollama).
     # Active only when FACTORY_LLM_PROVIDER=openai.
     openai:
@@ -61,9 +77,13 @@ server:
   # Safe local default. Compose overrides the container listener while publishing
   # its host port on loopback only.
   address: ${FACTORY_SERVER_ADDRESS:127.0.0.1}
-  # OPS-2: finish in-flight HTTP requests before exit instead of dropping them on
+  # Finish in-flight HTTP requests before exit instead of dropping them on
   # SIGTERM. Runs in the SmartLifecycle stop phase, bounded by timeout-per-shutdown-phase.
   shutdown: graceful
+  servlet:
+    session:
+      # Flash messages need a session; a cookie keeps ;jsessionid= out of redirect URLs.
+      tracking-modes: cookie
 
 factory:
   engine:
@@ -73,11 +93,11 @@ factory:
     # Must exceed the longest legitimate single step or the reaper re-queues a live
     # execution. Developer Flow can run baseline + Pi sequentially, so keep this
     # above 2 * FACTORY_DEV_FACTORY_TIMEOUT_SECONDS plus setup/freezing margin.
-    lease-timeout-seconds: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:7200}
+    lease-timeout-seconds: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:9000}
     # Cadence of the lease reaper + sub-flow reconciliation sweep. Read by the
     # @Scheduled placeholder in ExecutionPoller, not by EngineProperties.
     reap-interval-ms: ${FACTORY_ENGINE_REAP_INTERVAL_MS:30000}
-    # OPS-2: max seconds shutdown blocks draining in-flight engine steps before the
+    # Max seconds shutdown blocks draining in-flight engine steps before the
     # JVM exits; a longer step is abandoned and re-queued by the reaper after
     # lease-timeout-seconds. Keep <= the container termination grace period.
     shutdown-await-seconds: ${FACTORY_ENGINE_SHUTDOWN_AWAIT_SECONDS:30}
@@ -87,10 +107,12 @@ factory:
     # peer instance's live work.
     reclaim-running-on-startup: ${FACTORY_ENGINE_RECLAIM_RUNNING_ON_STARTUP:true}
   limits:
-    # COST-1: 0 disables the guard.
+    # Caps on runs at once and runs per day keep LLM spend bounded; a trigger over the daily
+    # budget gets HTTP 429. 0 disables a cap.
     max-concurrent-executions: ${FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS:8}
     max-executions-per-day: ${FACTORY_LIMITS_MAX_EXECUTIONS_PER_DAY:200}
-    # DATA-1: write-time size caps (bytes). Non-destructive; generous defaults.
+    # Write-time size caps (bytes), so one artifact or trigger payload cannot fill the
+    # database. Non-destructive; generous defaults.
     max-artifact-bytes: ${FACTORY_LIMITS_MAX_ARTIFACT_BYTES:5000000}
     max-trigger-payload-bytes: ${FACTORY_LIMITS_MAX_TRIGGER_PAYLOAD_BYTES:262144}
     dedup:
@@ -101,7 +123,7 @@ factory:
       # payload. Comma-separated. Explicit placeholder so the underscored env var binds.
       id-pointers: ${FACTORY_LIMITS_DEDUP_ID_POINTERS:/issueKey}
   retention:
-    # DATA-1: destructive, so opt-in. Purges terminal execution trees older than the
+    # Destructive, so opt-in. Purges terminal execution trees older than the
     # TTL (COMPLETED/REJECTED/CANCELLED and descendants); audit_event is never purged.
     enabled: ${FACTORY_RETENTION_ENABLED:false}
     ttl-days: ${FACTORY_RETENTION_TTL_DAYS:90}
@@ -121,246 +143,43 @@ factory:
       username: ${FACTORY_CONNECTORS_TESTRAIL_USERNAME:}
       api-key: ${FACTORY_CONNECTORS_TESTRAIL_API_KEY:}
       project-id: ${FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID:0}
+  # My tasks. These settings had the old pilot names until the rename on 2026-10-30.
+  tasks:
+    execution:
+      # Task queue processing: opt-in; new launches are refused while retention is enabled.
+      # Gates the outcome and dispatch wiring; the engine itself knows nothing about tasks.
+      enabled: ${FACTORY_TASKS_EXECUTION_ENABLED:false}
+      # Whole-attempt budget from preparation through delivery (queue and review waiting
+      # excluded). The coding turns have their own safety limit, 400 by default
+      # (factory.dev-factory.runtime.coding.claude-code.max-turns).
+      deadline: ${FACTORY_TASKS_EXECUTION_DEADLINE:120m}
+      # Dispatch poller, also run once at startup: re-examines the active attempt, retries
+      # queued attempts after a refused or failed dispatch and advances the queue when a
+      # terminal outcome frees the slot. Admission itself also dispatches best-effort.
+      dispatch-interval-ms: ${FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS:30000}
+    source:
+      # Whose open Jira tasks Scan Jira finds: the name as Jira shows it, or an accountId.
+      assignee: ${FACTORY_TASKS_ASSIGNEE:}
   dev-factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
-    repositories:
-      sidecar:
-        source-repo: ${FACTORY_SIDECAR_SOURCE_REPO:folio-org/folio-module-sidecar}
-        base-branch: master
-        build-image: maven:3.9-eclipse-temurin-21
-        verification-plan: java21-unit
-        jira-projects: [MODSIDECAR]
-      mod-roles-keycloak:
-        source-repo: ${FACTORY_MOD_ROLES_KEYCLOAK_SOURCE_REPO:folio-org/mod-roles-keycloak}
-        base-branch: master
-        build-image: maven:3.9-eclipse-temurin-21
-        verification-plan: java21-roles-verify
-        jira-projects: [MODROLESKC]
-      mgr-tenant-entitlements:
-        source-repo: ${FACTORY_MGR_TENANT_ENTITLEMENTS_SOURCE_REPO:folio-org/mgr-tenant-entitlements}
-        base-branch: ${FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:master}
-        build-image: maven:3.9-eclipse-temurin-21
-        verification-plan: java21-unit
-        jira-projects: [MGRENTITLE]
-      mgr-applications:
-        source-repo: ${FACTORY_MGR_APPLICATIONS_SOURCE_REPO:folio-org/mgr-applications}
-        base-branch: master
-        build-image: maven:3.9-eclipse-temurin-21
-        verification-plan: java21-unit
-        jira-projects: [MGRAPPS]
-      ui-users:
-        source-repo: ${FACTORY_UI_USERS_SOURCE_REPO:folio-org/ui-users}
-        base-branch: master
-        build-image: node:22.22.0-bookworm
-        verification-plan: node22-jest
-        jira-projects: [UIU]
-      ui-circulation:
-        source-repo: ${FACTORY_UI_CIRCULATION_SOURCE_REPO:folio-org/ui-circulation}
-        base-branch: master
-        build-image: node:22.22.0-bookworm
-        verification-plan: node22-jest
-        jira-projects: [UICIRC]
-      ui-inventory:
-        source-repo: ${FACTORY_UI_INVENTORY_SOURCE_REPO:folio-org/ui-inventory}
-        base-branch: master
-        build-image: node:22.22.0-bookworm
-        verification-plan: node22-jest
-        jira-projects: [UIIN]
-      ui-marc-authorities:
-        source-repo: ${FACTORY_UI_MARC_AUTHORITIES_SOURCE_REPO:folio-org/ui-marc-authorities}
-        base-branch: master
-        build-image: node:22.22.0-bookworm
-        verification-plan: node22-jest
-        jira-projects: [UIMARCAUTH]
-      ui-checkin:
-        source-repo: ${FACTORY_UI_CHECKIN_SOURCE_REPO:folio-org/ui-checkin}
-        base-branch: master
-        build-image: node:22.22.0-bookworm
-        verification-plan: node22-jest
-        jira-projects: [UICHKIN]
-      ui-eholdings:
-        source-repo: ${FACTORY_UI_EHOLDINGS_SOURCE_REPO:folio-org/ui-eholdings}
-        base-branch: master
-        build-image: node:22.22.0-bookworm
-        verification-plan: node22-jest
-        jira-projects: [UIEH]
-      ui-myprofile:
-        source-repo: ${FACTORY_UI_MYPROFILE_SOURCE_REPO:folio-org/ui-myprofile}
-        base-branch: master
-        build-image: node:22.22.0-bookworm
-        verification-plan: node22-jest
-        jira-projects: [UIMPROF]
-      ui-tags:
-        source-repo: ${FACTORY_UI_TAGS_SOURCE_REPO:folio-org/ui-tags}
-        base-branch: master
-        build-image: node:22.22.0-bookworm
-        verification-plan: node22-jest
-        jira-projects: [UITAG]
+    # Model used when a run names none (manual API trigger, runs from before the models file) and
+    # preselected in the run forms: an id from config/developer-models.yaml. Empty: the first model
+    # in that file that the coding harness can run.
+    default-model: ${FACTORY_DEV_FACTORY_DEFAULT_MODEL:}
     runtime:
-      timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
+      timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:3600}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
       # Copying the shared dependency cache into one new coding or verification workload.
       seed-timeout-seconds: ${FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS:300}
+      # UI plans (yarn + Jest).
       yarn:
         cache-volume: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:factory-dev-yarn-cache}
         folio-registry: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:https://repository.folio.org/repository/npm-folioci/}
         # Run by the starting build, the coding container and verification, before the plan's test command.
         # --mutex serializes installs into the shared cache; two at once corrupt each other's entries.
         install-command: [yarn, install, --frozen-lockfile, --ignore-scripts, --non-interactive, --mutex, "file:/tmp/factory-home/.yarn-cache/.yarn-mutex"]
-      plans:
-        java21-unit: [mvn, -B, -ntp, test]
-        java21-roles-verify: [mvn, -B, -ntp, verify]
-        # --maxWorkers keeps Jest inside the Podman VM's memory (see doc/dev-flow-ui-support.md).
-        node22-jest: [yarn, test, --maxWorkers=2]
-      plan-toolchains:
-        node22-jest: yarn
-      required-reports:
-        # Integration requires isolated Docker support; unavailable in the current workload topology.
-        java21-roles-verify:
-          - target/surefire-reports/TEST-org.folio.roles.controller.ApiExceptionHandlerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.CapabilityControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.CapabilitySetControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.LoadableControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.MigrationControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.PermissionsUsersControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.RoleCapabilityControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.RoleCapabilitySetControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.UserCapabilityControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.UserCapabilitySetControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.UserRoleControllerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.controller.validation.validator.PolicyValidatorTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilityEventModuleIdExtractorTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilityEventProcessorTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilityKafkaEventHandlerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilitySetByDummyUpdaterTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilitySetDescriptorServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.KafkaMessageListenerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.configuration.KafkaConfigurationErrorDetectionTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakAuthorizationServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakClientServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakMethodRetryPredicateTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakPermissionsExecutorTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakPolicyServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakRoleServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakRolesUserServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakUserServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.RealmConfigurationProviderTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.configuration.KeycloakConfigurationPropertiesTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.mte.MteEntitlementServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.integration.mte.configuration.MteConfigurationTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.mapper.KeycloakPolicyMapperTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.repository.BaseCqlJpaRepositoryTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.repository.generators.FolioUuidGeneratorImplTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.CustomTenantServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.MigrationServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.ApiRoleCapabilityServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.ApiRoleCapabilitySetServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityEndpointServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityEventHandlerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityReplacementsServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityResolverTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilitySetByCapabilitiesUpdaterTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilitySetEventHandlerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilitySetServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.RoleCapabilityServiceImplTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.RoleCapabilitySetServiceImplTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserCapabilityServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserCapabilitySetQueryServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserCapabilitySetServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserPermissionCacheEventHandlerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserPermissionCacheServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserPermissionsCacheEvictorTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.LoadablePermissionServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.LoadableRoleCapabilityAssignmentHelperTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.LoadableRoleCapabilityAssignmentProcessorTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.LoadableRoleServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.UnresolvedLoadablePermissionsCreatedEventHandlerTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.migration.CapabilitiesMergeServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.migration.CapabilityDuplicateMigrationServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.migration.ManagePermissionsResolverTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.migration.MigrationErrorServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.migration.MigrationRoleCreatorTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.migration.PermissionMigrationServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.migration.RolePermissionAssignorTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.migration.UserPermissionsLoaderTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.permission.FolioPermissionServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.permission.PermissionOverriderTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.permission.RolePermissionServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.permission.UserPermissionServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.policy.PolicyEntityServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.policy.PolicyServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.reference.PoliciesDataLoaderTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.reference.ReferenceDataRoleNamesTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.reference.RolesDataLoaderTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.role.RoleEntityServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.role.RoleMigrationServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.role.RoleServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.role.UserRoleEntityServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.service.role.UserRoleServiceTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.utils.CapabilityUtilsTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.utils.CollectionUtilsTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.utils.JsonHelperTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.utils.ParseUtilsTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.utils.ResourceHelperTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.utils.RoleNameUtilsTest.xml
-          - target/surefire-reports/TEST-org.folio.roles.utils.UpdateOperationHelperTest.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.ActuatorIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.CacheConfigIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.CapabilityIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.CapabilityReplacesIntegrityIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.CapabilitySetIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.DummyCapabilityIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.DummyCapabilityReplacementCollapseIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaCapabilityEventUpsertIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaEventConfirmationIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaMessageFilteringFailStrategyIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaMessageFilteringIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaMessageListenerIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.LoadableRoleProcessingIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.LoadableRolesWithDummyCapabilitiesIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.MigrationIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.NestedCapabilitySetIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.PermissionReplacementIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.PermissionsUserEntitledOnlyIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.PermissionsUserIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.PolicyIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.ReferenceDataIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.ReferenceRoleLoadingIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.RemoveCapabilityDuplicateMigrationIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.RoleCapabilityIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.RoleCapabilitySetIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.RoleCapabilitySetUpdateIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.RoleCapabilityUpdateIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.RoleKeycloakIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.UserCapabilityIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.UserCapabilitySetIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.UserCapabilitySetUpdateIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.UserCapabilityUpdateIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.UserPermissionCacheIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.it.UserRolesIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.BasePolicyEntityRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.CapabilityEndpointRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.CapabilityRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.CapabilitySetRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.LoadablePermissionRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.LoadableRoleRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.RoleCapabilityRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.RoleCapabilitySetRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.RoleEntityRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.UserCapabilityRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.UserCapabilitySetRepositoryIT.xml
-          - target/failsafe-reports/TEST-org.folio.roles.repository.UserRoleRepositoryIT.xml
       coding:
-        runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:pi}
-        image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21-node22}
-        provider: ${FACTORY_MODEL_PROVIDER:}
-        model: ${FACTORY_MODEL_ID:}
-        base-url: ${FACTORY_MODEL_BASE_URL:}
-        api: ${FACTORY_MODEL_API:openai-completions}
-        api-key: ${FACTORY_MODEL_API_KEY:}
-        reasoning-effort: ${FACTORY_MODEL_REASONING_EFFORT:}
-        max-output-tokens: ${FACTORY_MODEL_MAX_OUTPUT_TOKENS:16384}
+        runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:claude-code}
         pi:
           image: ${FACTORY_PI_IMAGE:}
           provider: ${FACTORY_PI_PROVIDER:}
@@ -371,73 +190,18 @@ factory:
           api-key: ${FACTORY_PI_API_KEY:}
           reasoning-effort: ${FACTORY_PI_REASONING_EFFORT:}
           max-output-tokens: ${FACTORY_PI_MAX_OUTPUT_TOKENS:}
+          # True only when the model reads images; Pi otherwise swaps every image for a text placeholder.
           images: ${FACTORY_PI_IMAGES:false}
+        # The model, endpoint, secret and effort of a Claude Code run come from config/developer-models.yaml.
         claude-code:
           image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21-node22}
-          api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
-          base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:}
-          model: ${FACTORY_CLAUDE_CODE_MODEL:}
-          authentication: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:}
-          api-key: ${FACTORY_CLAUDE_CODE_API_KEY:}
-          auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:}
-          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
-          max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
-          effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
-          images: ${FACTORY_CLAUDE_CODE_IMAGES:false}
+          # A safety limit from 1 to 500, not a tuning knob: the coding timeout above usually ends a
+          # run first (about 360 turns in 60 minutes). A run that hits it loses its work.
+          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:400}
+    # Images attached to the Jira ticket, for models that read images (images: true in the models file).
     attachments:
       max-images: ${FACTORY_DEV_FACTORY_ATTACHMENT_MAX_IMAGES:10}
       max-bytes: ${FACTORY_DEV_FACTORY_ATTACHMENT_MAX_BYTES:3145728}
-    delivery:
-      create-pull-request: true
-      targets:
-        sidecar:
-          repository: ${FACTORY_SIDECAR_DELIVERY_REPO:folio-org/folio-module-sidecar}
-          base-branch: master
-          authorized: true
-        mod-roles-keycloak:
-          repository: ${FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_REPO:folio-org/mod-roles-keycloak}
-          base-branch: master
-          authorized: true
-        mgr-tenant-entitlements:
-          repository: ${FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_REPO:folio-org/mgr-tenant-entitlements}
-          base-branch: ${FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:master}
-          authorized: true
-        mgr-applications:
-          repository: ${FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:folio-org/mgr-applications}
-          base-branch: master
-          authorized: true
-        ui-users:
-          repository: ${FACTORY_UI_USERS_DELIVERY_REPO:folio-org/ui-users}
-          base-branch: master
-          authorized: true
-        ui-circulation:
-          repository: ${FACTORY_UI_CIRCULATION_DELIVERY_REPO:folio-org/ui-circulation}
-          base-branch: master
-          authorized: true
-        ui-inventory:
-          repository: ${FACTORY_UI_INVENTORY_DELIVERY_REPO:folio-org/ui-inventory}
-          base-branch: master
-          authorized: true
-        ui-marc-authorities:
-          repository: ${FACTORY_UI_MARC_AUTHORITIES_DELIVERY_REPO:folio-org/ui-marc-authorities}
-          base-branch: master
-          authorized: true
-        ui-checkin:
-          repository: ${FACTORY_UI_CHECKIN_DELIVERY_REPO:folio-org/ui-checkin}
-          base-branch: master
-          authorized: true
-        ui-eholdings:
-          repository: ${FACTORY_UI_EHOLDINGS_DELIVERY_REPO:folio-org/ui-eholdings}
-          base-branch: master
-          authorized: true
-        ui-myprofile:
-          repository: ${FACTORY_UI_MYPROFILE_DELIVERY_REPO:folio-org/ui-myprofile}
-          base-branch: master
-          authorized: true
-        ui-tags:
-          repository: ${FACTORY_UI_TAGS_DELIVERY_REPO:folio-org/ui-tags}
-          base-branch: master
-          authorized: true
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}
@@ -450,7 +214,7 @@ factory:
     testrail-section-id: ${FACTORY_TEST_FACTORY_TESTRAIL_SECTION_ID:}
 
 logging:
-  # OBS-1: JSON logging is opt-in via env so local `mvn spring-boot:run` stays
+  # JSON logging is opt-in via env so local `mvn spring-boot:run` stays
   # human-readable. Set FACTORY_LOG_FORMAT=ecs (or logstash / gelf) in containers.
   # An empty value keeps the standard pattern; under ecs/logstash every MDC entry
   # (executionId, stepId) is auto-included in the JSON.
@@ -465,11 +229,11 @@ management:
   endpoints:
     web:
       exposure:
-        # OBS-1: prometheus scrape at /actuator/prometheus, metrics browse at /actuator/metrics.
+        # Metrics for monitoring: Prometheus scrape at /actuator/prometheus, browsing at /actuator/metrics.
         include: health,info,metrics,prometheus
   endpoint:
     health:
-      # OBS-1: registers /actuator/health/liveness and /actuator/health/readiness probes.
+      # Container health checks: registers /actuator/health/liveness and /actuator/health/readiness.
       probes:
         enabled: true
       # Security-adjacent: exposes db + connector details to unauthenticated callers.
@@ -481,3 +245,8 @@ management:
           include: livenessState
         readiness:
           include: readinessState,db
+
+# Each model in config/developer-models.yaml reads its secret by variable name from this environment.
+# The local CodeMie proxy accepts this public token, so the CodeMie models also work under
+# mvn spring-boot:run without .env; the shell, .env and Compose override it.
+FACTORY_CODEMIE_PROXY_TOKEN: codemie-proxy

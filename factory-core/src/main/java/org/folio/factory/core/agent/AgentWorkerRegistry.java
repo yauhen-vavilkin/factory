@@ -1,13 +1,12 @@
 package org.folio.factory.core.agent;
 
 import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.registry.model.StepType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -20,9 +19,8 @@ import java.util.Map;
  * references a worker id that does not exist.
  */
 @Component
+@Slf4j
 public class AgentWorkerRegistry {
-
-    private static final Logger log = LoggerFactory.getLogger(AgentWorkerRegistry.class);
 
     private final Map<String, AgentWorker> workers = new LinkedHashMap<>();
     private final FlowRegistry flowRegistry;

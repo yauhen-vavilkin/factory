@@ -1,10 +1,11 @@
 package org.folio.factory.agents.llm;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ResponseEntity;
 import org.springframework.ai.chat.metadata.Usage;
@@ -23,9 +24,9 @@ import java.util.Map;
  * distinct from the engine's step retry budget: a parse retry re-asks the model
  * within the same step attempt.</p>
  */
+@RequiredArgsConstructor(access = AccessLevel.PROTECTED)
+@Slf4j
 public abstract class AbstractLlmAgentWorker implements AgentWorker {
-
-    private static final Logger log = LoggerFactory.getLogger(AbstractLlmAgentWorker.class);
 
     // Token usage of the last successful model call on this thread. Set per call
     // (never accumulated) and cleared both at callForEntity entry and on read, so
@@ -35,10 +36,6 @@ public abstract class AbstractLlmAgentWorker implements AgentWorker {
     private static final ThreadLocal<long[]> USAGE = new ThreadLocal<>();
 
     protected final ChatClient chatClient;
-
-    protected AbstractLlmAgentWorker(ChatClient chatClient) {
-        this.chatClient = chatClient;
-    }
 
     protected String systemPrompt(Map<String, Object> variables) {
         return PromptLoader.render(PromptLoader.load(id(), "system"), variables);

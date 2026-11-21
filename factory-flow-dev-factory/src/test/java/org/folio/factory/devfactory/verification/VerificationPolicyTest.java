@@ -17,10 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class VerificationPolicyTest {
     private final DevRuntimeProperties runtime = new DevRuntimeProperties(
             Map.of("jest", List.of("yarn", "test"), "unit", List.of("mvn", "test")), null, 60, null, Map.of(),
-            Map.of("jest", Toolchain.YARN));
+            Map.of("jest", Toolchain.YARN), null, 0);
     private final DevFactoryProperties properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of(
-            "ui", new DevFactoryProperties.Repository("owner/ui", "master", "node:image", "jest", List.of("T"), List.of()),
-            "svc", new DevFactoryProperties.Repository("owner/svc", "master", "maven:image", "unit", List.of("S"), List.of()))));
+            "ui", new DevFactoryProperties.Repository("owner/ui", "master", "node:image", "jest", List.of("T"), List.of(), null),
+            "svc", new DevFactoryProperties.Repository("owner/svc", "master", "maven:image", "unit", List.of("S"), List.of(), null))));
     private final VerificationPolicy policy = new VerificationPolicy(properties, runtime);
 
     private Candidate candidate(String repository) {

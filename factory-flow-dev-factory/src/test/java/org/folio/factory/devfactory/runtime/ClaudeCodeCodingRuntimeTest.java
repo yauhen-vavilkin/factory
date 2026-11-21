@@ -1,31 +1,54 @@
 package org.folio.factory.devfactory.runtime;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.isNull;
 
 class ClaudeCodeCodingRuntimeTest {
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String INIT = "{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"custom/Model-1\"}\n";
     private static final String RESULT = """
             {"type":"result","subtype":"success","is_error":false,"result":"Done secret-key","usage":{"input_tokens":40,"output_tokens":5,"cache_read_input_tokens":3,"cache_creation_input_tokens":2},"total_cost_usd":0.01}
             """;
+    private static final String TOOL_USE = """
+            {"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"mvn test"}}]}}
+            """;
+    private static final String TOOL_RESULT = """
+            {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","is_error":false,"content":"BUILD SUCCESS"}]}}
+            """;
 
-    @ParameterizedTest @ValueSource(strings = {"api-key", "bearer-token"})
+    @ParameterizedTest
+    @ValueSource(strings = {"api-key", "bearer-token"})
     void attemptUsesPrivateCredentialsExactModelAndConfirmedContext(String authentication) throws Exception {
-        var runtime = new ClaudeCodeCodingRuntime(config(authentication));
+        var runtime = runtime(authentication);
         var workload = workload();
         var temporary = new AtomicReference<Path>();
         doAnswer(call -> {
@@ -35,72 +58,227 @@ class ClaudeCodeCodingRuntimeTest {
             assertThat(environment).contains("ANTHROPIC_BASE_URL='http://gateway.example/anthropic'");
             assertThat(environment).contains("ANTHROPIC_DEFAULT_MODEL='custom/Model-1'",
                     "CLAUDE_CODE_EXTRA_BODY='{\"model\":\"custom/Model-1\"}'",
-                    "CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP=1");
+                    "CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "DISABLE_AUTOUPDATER=1");
             assertThat(environment).contains(authentication.equals("api-key")
                     ? "ANTHROPIC_API_KEY='secret-key'" : "ANTHROPIC_AUTH_TOKEN='secret-token'");
             assertThat(environment).doesNotContain(authentication.equals("api-key")
                     ? "ANTHROPIC_AUTH_TOKEN=" : "ANTHROPIC_API_KEY=");
             assertThat(Files.getPosixFilePermissions(directory.resolve("environment")))
-                    .isEqualTo(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+                    .isEqualTo(PosixFilePermissions.fromString("rw-------"));
             assertThat(Files.readString(directory.resolve("task.txt")))
                     .contains("Use public API", "REPOSITORY_MISMATCH", "Factory independently verifies");
             return null;
         }).when(workload).copy(anyString(), eq("/tmp/factory-claude"));
         var events = new ArrayList<Map<String, Object>>();
-        when(workload.execute(anyList(), eq(60), eq(ClaudeCodeCodingRuntime.EVENT_STREAM_LIMIT), any()))
+        var transcript = new ArrayList<CodingTranscripts.Entry>();
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
                 .thenAnswer(call -> {
                     List<String> argv = call.getArgument(0);
                     assertThat(argv).containsSubsequence("--model", "custom/Model-1")
                             .containsSubsequence("--permission-mode", "dontAsk", "--permission-prompts", "none")
-                            .contains("--bare", "--print", "stream-json", "--include-partial-messages", "--no-session-persistence", "--allowedTools")
-                            .doesNotContain("secret-key", "secret-token", "--continue", "--resume");
-                    Consumer<String> progress = call.getArgument(3);
-                    (INIT + RESULT).lines().forEach(progress);
-                    return new Processes.Result(0, INIT + RESULT);
+                            .contains("--print", "stream-json", "--include-partial-messages", "--no-session-persistence", "--allowedTools")
+                            .containsSubsequence("--setting-sources", "", "--strict-mcp-config")
+                            // WebFetch must not send each domain to api.anthropic.com for a check first.
+                            .containsSubsequence("--settings", "{\"skipWebFetchPreflight\":true}")
+                            .containsSubsequence("--tools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
+                                    "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch")
+                            .containsSubsequence("--max-turns", "10", "--effort", "high")
+                            // Without --bare the CLI offers WebFetch; settings still come from no source.
+                            .doesNotContain("--bare", "secret-key", "secret-token", "--continue", "--resume");
+                    UnaryOperator<String> redactor = call.getArgument(3);
+                    assertThat(redactor.apply("stderr secret-key")).isEqualTo("stderr [REDACTED]");
+                    return feed(call.getArgument(4), INIT + RESULT, 0, "");
                 });
-        var outcome = runtime.code(workload, request().withDecision(new CodingRequest.ConfirmedDecision(
-                "decision", "PRODUCT_REQUIREMENTS", "Which API?", "Use public API")), 60, events::add);
+        var request = request().withDecision(new CodingRequest.ConfirmedDecision(
+                "decision", "PRODUCT_REQUIREMENTS", "Which API?", "Use public API"));
+        var outcome = runtime.code(workload, request, 60, events::add, transcript::add);
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(transcript.getFirst().kind()).isEqualTo("prompt");
+        assertThat(transcript.getFirst().detail()).containsEntry("text", CodingProtocol.prompt(request));
+        assertThat(transcript.getLast().kind()).isEqualTo("result");
         assertThat(outcome.summary()).isEqualTo("Done [REDACTED]");
         assertThat(outcome.metrics()).containsEntry("inputTokens", 40L).containsEntry("cacheReadTokens", 3L)
                 .containsEntry("outputTokens", 5L).doesNotContainKey("usageIncomplete").doesNotContainKey("costUsd");
-        assertThat(events.toString() + runtime.identity() + config(authentication))
+        assertThat(events.toString() + runtime.identity(null))
                 .doesNotContain("secret-key", "secret-token", "gateway.example");
         assertThat(Files.exists(temporary.get())).isFalse();
-        verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30);
+        verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30, Processes.OUTPUT_LIMIT, null);
         verify(workload, never()).stop(); // Orchestrator must still export partial edits before close.
         verify(workload, never()).close();
     }
 
-    @Test void transportFailureRetainsPartialUsageAndNeverPersistsRawDiagnostics() {
+    @Test
+    void aRunUsesTheModelItsSettingsNameAndEverySecretIsRedacted() throws Exception {
+        var runtime = runtime("bearer-token");
+        var settings = new CodingRequest.RunSettings("example-large", "low", "Use the wiki REST URL.");
         var workload = workload();
-        when(workload.execute(anyList(), eq(60), eq(ClaudeCodeCodingRuntime.EVENT_STREAM_LIMIT), any()))
-                .thenAnswer(call -> {
-                    Consumer<String> progress = call.getArgument(3);
-                    progress.accept(assistant("a", 5));
-                    throw new IllegalStateException("private request secret-key secret-token");
-                });
-        var outcome = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
-        assertThat(outcome.failure().code()).isEqualTo("RUNTIME_ERROR");
-        assertThat(outcome.toString()).doesNotContain("secret-key", "secret-token", "private request");
-        assertThat(outcome.metrics()).containsEntry("inputTokens", 5L).containsEntry("usageIncomplete", true);
-        verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30);
+        doAnswer(call -> {
+            String environment = Files.readString(Path.of((String) call.getArgument(0)).resolve("environment"));
+            assertThat(environment).contains("ANTHROPIC_BASE_URL='https://api.example.com/anthropic'",
+                    "ANTHROPIC_AUTH_TOKEN='example-secret'", "ANTHROPIC_DEFAULT_MODEL='example-large'",
+                    "CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192").doesNotContain("secret-token", "gateway.example");
+            return null;
+        }).when(workload).copy(anyString(), eq("/tmp/factory-claude"));
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any())).thenAnswer(call -> {
+            List<String> argv = call.getArgument(0);
+            assertThat(argv)
+                    .containsSubsequence("--model", "example-large", "--max-turns", "10", "--effort", "low")
+                    .doesNotContain("example-secret", "custom/Model-1");
+            UnaryOperator<String> redactor = call.getArgument(3);
+            assertThat(redactor.apply("example-secret secret-key secret-token"))
+                    .isEqualTo("[REDACTED] [REDACTED] [REDACTED]");
+            return feed(call.getArgument(4), INIT.replace("custom/Model-1", "example-large") + RESULT, 0, "");
+        });
+        var base = request();
+        var request = new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),
+                base.linkedIssues(), base.acceptanceCriteria(), base.confirmedDecisions(), base.repository(),
+                base.constraints(), settings, List.of());
+
+        var outcome = runtime.code(workload, request, 60, event -> {}, CodingTranscripts.NONE);
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(runtime.identity(settings)).containsEntry("modelId", "example-large")
+                .containsEntry("model", "example-large")
+                .containsEntry("effort", "low").containsEntry("maxTurns", 10)
+                .doesNotContainKey("baseUrl").doesNotContainValue("example-secret");
     }
 
-    @Test void versionMismatchDoesNotCopyCredentialsOrStartTheCli() {
+    @Test
+    void aMissingOrUnconfiguredModelFailsWithAReasonThatNamesItAndTheFix() {
+        var runtime = runtime(null, "http://gateway.example/anthropic", "custom/Model-1", "bearer-token", 10, "");
+
+        assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("gone", null, null)))
+                .isInstanceOf(ModelCatalog.ModelException.class)
+                .hasMessageContaining("model gone").hasMessageContaining("config/developer-models.yaml");
+        assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("example-large", null,
+                null)))
+                .isInstanceOf(ModelCatalog.ModelException.class)
+                .hasMessage("Model example-large is not configured: set FACTORY_EXAMPLE_API_KEY in .env. If"
+                        + " docker-compose.yml does not pass FACTORY_EXAMPLE_API_KEY to the factory service yet, add it"
+                        + " there. Then run docker compose up -d again.");
+        // A model without its secret does not stop runs with the default model.
+        runtime.requireConfigured(null);
+        assertThat(runtime.identity(new CodingRequest.RunSettings("gone", null, null)))
+                .containsEntry("modelId", "gone").doesNotContainKey("model");
+    }
+
+    @Test
+    void aRunWithoutSettingsUsesTheDefaultModelItsEffortAndTheTurnLimitFromEnv() {
+        var runtime = runtime("api-key");
         var workload = workload();
-        when(workload.execute(List.of("claude", "--version"), 30)).thenReturn(new Processes.Result(0, "other"));
-        assertThat(new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60).failure().code())
-                .isEqualTo("RUNTIME_VERSION");
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any())).thenAnswer(call -> {
+            List<String> argv = call.getArgument(0);
+            assertThat(argv).containsSubsequence("--model", "custom/Model-1", "--max-turns", "10", "--effort", "high");
+            return feed(call.getArgument(4), INIT + RESULT, 0, "");
+        });
+
+        assertThat(runtime.code(workload, request(), 60, event -> {}, CodingTranscripts.NONE).status())
+                .isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(runtime.identity(null)).containsEntry("modelId", "gateway").containsEntry("model", "custom/Model-1")
+                .containsEntry("effort", "high").containsEntry("maxTurns", 10);
+    }
+
+    @Test
+    void transportFailureRetainsPartialUsageAndNeverPersistsRawDiagnostics() {
+        var workload = workload();
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
+                .thenAnswer(call -> {
+                    Predicate<String> lines = call.getArgument(4);
+                    lines.test(assistant("a", 5));
+                    throw new IllegalStateException("private request secret-key secret-token");
+                });
+        var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        assertThat(outcome.failure().code()).isEqualTo("RUNTIME_ERROR");
+        assertThat(outcome.failure().message()).contains("Check that Docker is running");
+        assertThat(outcome.toString()).doesNotContain("secret-key", "secret-token", "private request");
+        assertThat(outcome.metrics()).containsEntry("inputTokens", 5L).containsEntry("usageIncomplete", true);
+        verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30, Processes.OUTPUT_LIMIT, null);
+    }
+
+    @Test
+    void dockerFailureBeforeTheCliStartsIsAPlainReason() {
+        var workload = workload();
+        doThrow(new IllegalStateException("Command failed (exit 1): no such container secret-key"))
+                .when(workload).copy(anyString(), eq("/tmp/factory-claude"));
+        var transcript = new ArrayList<CodingTranscripts.Entry>();
+        var outcome = runtime("api-key").code(workload, request(), 60, e -> { },
+                transcript::add);
+        assertThat(outcome.failure().code()).isEqualTo("RUNTIME_ERROR");
+        assertThat(outcome.failure().message()).startsWith("Factory could not prepare or start Claude Code")
+                .doesNotContain("secret-key", "no such container");
+        assertThat(transcript).extracting(CodingTranscripts.Entry::kind).containsExactly("note");
+        verify(workload, never()).stream(anyList(), anyInt(), anyInt(), any(), any());
+    }
+
+    @Test
+    void versionMismatchDoesNotCopyCredentialsOrStartTheCli() {
+        var workload = workload();
+        when(workload.execute(List.of("claude", "--version"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "other"));
+        var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        assertThat(outcome.failure().code()).isEqualTo("RUNTIME_VERSION");
+        assertThat(outcome.failure().message()).contains("Claude Code " + ClaudeCodeCodingRuntime.VERSION,
+                "Build the coding image again");
         verify(workload, never()).copy(anyString(), anyString());
     }
 
-    @Test void strictTerminalResultIsRequiredAndProcessFailureCannotAuthorizeSuccess() {
+    @Test
+    void streamStopsAtTheFirstLineThatFailsTheAttempt() {
+        var workload = workload();
+        var answers = new ArrayList<Boolean>();
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any())).thenAnswer(call -> {
+            Predicate<String> lines = call.getArgument(4);
+            for (String line : List.of(INIT.strip(), "not json", RESULT.strip())) {
+                boolean keepReading = lines.test(line);
+                answers.add(keepReading);
+                if (!keepReading) break;
+            }
+            return new Processes.Streamed(137, false, false, "", false);
+        });
+        var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        assertThat(answers).containsExactly(true, false);
+        assertThat(outcome.failure().code()).isEqualTo("MALFORMED_FRAME");
+        assertThat(outcome.failure().message()).contains("not a valid event", "Retry the task");
+    }
+
+    @Test
+    void aReaderThatIsStillBusyNeverHasItsStateReadForTheOutcome() {
+        var workload = workload();
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
+                .thenReturn(new Processes.Streamed(0, false, false, "", true));
+        var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        assertThat(outcome.failure().code()).isEqualTo("OUTPUT_UNREAD");
+        assertThat(outcome.failure().message()).contains("could not finish reading its output", "Retry the task");
+    }
+
+    @Test
+    void timeLimitAndOversizedLineStopTheAttemptWithPlainReasons() {
+        var workload = workload();
+        when(workload.stream(anyList(), eq(1800), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
+                .thenAnswer(call -> {
+                    feed(call.getArgument(4), INIT, -1, "");
+                    return new Processes.Streamed(-1, true, false, "", false);
+                });
+        var timedOut = runtime("api-key").code(workload, request(), 1800, event -> {}, CodingTranscripts.NONE);
+        assertThat(timedOut.failure().code()).isEqualTo("TIME_LIMIT");
+        assertThat(timedOut.failure().message()).isEqualTo("The agent did not finish in 30 minutes, so Factory"
+                + " stopped it. Start a new run with a lower effort or narrower instructions, or raise the time"
+                + " limit.");
+
+        when(workload.stream(anyList(), eq(60), eq(Processes.STREAM_LINE_LIMIT), any(), any()))
+                .thenReturn(new Processes.Streamed(137, false, true, "", false));
+        var oversized = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        assertThat(oversized.failure().code()).isEqualTo("FRAME_TOO_LARGE");
+        assertThat(oversized.failure().message()).contains("larger than 8 MB", "Retry the task");
+    }
+
+    @Test
+    void strictTerminalResultIsRequiredAndProcessFailureCannotAuthorizeSuccess() {
         assertThat(parse(INIT + assistant("a", 10), 0).failure().code()).isEqualTo("INCOMPLETE_RESULT");
         assertThat(parse(INIT + RESULT, 1).failure().code()).isEqualTo("RUNTIME_EXIT");
         assertThat(parse(INIT + RESULT + RESULT, 0).failure().code()).isEqualTo("INVALID_RESULT_SEQUENCE");
         assertThat(parse(INIT + "not json", 0).failure().code()).isEqualTo("MALFORMED_FRAME");
-        assertThat(parse(INIT + "x".repeat(512 * 1024 + 1), 0).failure().code()).isEqualTo("FRAME_TOO_LARGE");
+        assertThat(parse(INIT + "x".repeat(512 * 1024 + 1), 0).failure().code()).isEqualTo("MALFORMED_FRAME");
         assertThat(parse(INIT.replace("custom/Model-1", "wrong") + RESULT, 0).failure().code()).isEqualTo("IDENTITY_MISMATCH");
         assertThat(parse(RESULT, 0).failure().code()).isEqualTo("INCOMPLETE_RESULT");
         assertThat(parse(INIT + RESULT.replace("\"is_error\":false,", ""), 0).status()).isEqualTo(CodingOutcome.Status.FAILED);
@@ -108,39 +286,262 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(parse(INIT + RESULT.replace("\"is_error\":false", "\"is_error\":true"), 0).failure().code()).isEqualTo("PROVIDER_FAILED");
     }
 
-    @Test void terminalUsageReplacesIntermediateSnapshotsAndProgressIsBounded() {
+    @Test
+    void terminalUsageReplacesIntermediateSnapshotsAndLongRunsKeepEveryActivityEvent() {
         var events = new ArrayList<Map<String, Object>>();
-        var protocol = new ClaudeCodeProtocol("custom/Model-1", s -> s.replace("secret-key", "[REDACTED]"), events::add);
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 0, s -> s.replace("secret-key", "[REDACTED]"), events::add, CodingTranscripts.NONE);
         protocol.accept(INIT);
         protocol.accept(assistant("a", 10));
         protocol.accept(assistant("a", 12));
         assertThat(protocol.metrics()).containsEntry("inputTokens", 12L).containsEntry("usageIncomplete", true);
-        for (int i = 0; i < 250; i++) protocol.accept("""
-                {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"private secret-key"}}]}}
-                """);
+        for (int i = 0; i < 250; i++) {
+            protocol.accept("""
+                    {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"private secret-key"}}]}}
+                    """);
+        }
         protocol.accept(RESULT);
         assertThat(protocol.metrics()).containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L)
                 .doesNotContainKey("usageIncomplete");
-        assertThat(events.stream().filter(e -> !"coding_usage".equals(e.get("activity"))).count()).isEqualTo(200);
-        assertThat(events.toString()).doesNotContain("private", "secret-key");
-        assertThat(events.getLast()).containsEntry("activity", "coding_usage");
+        // 250 tool starts, plus agent_start and agent_end: the old cap of 200 events is gone.
+        assertThat(events.stream().filter(e -> !"coding_usage".equals(e.get("activity"))).count()).isEqualTo(252);
+        assertThat(events.toString()).contains("command=private [REDACTED]").doesNotContain("secret-key");
+        assertThat(events.getLast()).containsEntry("activity", "agent_end");
     }
 
-    @ParameterizedTest @ValueSource(strings = {
+    @Test
+    void unsuccessfulResultsKeepTheCliSubtypeAndSayWhatToDo() {
+        var turnLimit = parse(INIT + """
+                {"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":11,"errors":["Reached maximum number of turns (10)"]}
+                """, 1, 10);
+        assertThat(turnLimit.failure().code()).isEqualTo("TURN_LIMIT");
+        assertThat(turnLimit.failure().message())
+                .isEqualTo("The agent reached its limit of 10 turns before it finished."
+                        + " Start a new run with narrower instructions.");
+
+        var budget = parse(INIT + """
+                {"type":"result","subtype":"error_max_budget_usd","is_error":true,"errors":["Budget exceeded"]}
+                """, 1, 10);
+        assertThat(budget.failure().code()).isEqualTo("BUDGET_LIMIT");
+        assertThat(budget.failure().message()).contains("spending limit", "Retry with a lower effort",
+                "CLI message: Budget exceeded");
+
+        var provider = parse(INIT + """
+                {"type":"result","subtype":"error_during_execution","is_error":true,"errors":["API Error: 401 bad key secret-key"]}
+                """, 1, 10);
+        assertThat(provider.failure().code()).isEqualTo("PROVIDER_FAILED");
+        assertThat(provider.failure().message())
+                .startsWith("Claude Code stopped with an error (subtype error_during_execution).")
+                .contains("Check the provider", "Error: API Error: 401 bad key [REDACTED]")
+                .doesNotContain("secret-key");
+
+        var apiError = parse(INIT + """
+                {"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"API Error: 429 %s"}
+                """.formatted("x".repeat(1000)), 1, 10);
+        assertThat(apiError.failure().message()).contains("(subtype success, API status 429)", "Error: API Error: 429 x");
+        assertThat(apiError.failure().message().length()).isLessThan(480);
+    }
+
+    @Test
+    void exitCodesKeepARedactedBoundedStderrTail() {
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s.replace("secret-key", "[REDACTED]"),
+                e -> { }, CodingTranscripts.NONE);
+        protocol.accept(INIT);
+        var exited = protocol.outcome(new Processes.Streamed(2, false, false,
+                "y".repeat(5000) + "\nfatal: token secret-key rejected", false), 60, Processes.STREAM_LINE_LIMIT);
+        assertThat(exited.failure().code()).isEqualTo("RUNTIME_EXIT");
+        assertThat(exited.failure().message())
+                .startsWith("Claude Code exited with code 2 before it returned a result. Check the coding runtime")
+                .endsWith("fatal: token [REDACTED] rejected")
+                .doesNotContain("secret-key");
+        assertThat(exited.failure().message().length()).isLessThan(480);
+
+        var docker = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s, e -> { }, CodingTranscripts.NONE)
+                .outcome(new Processes.Streamed(126, false, false, "OCI runtime exec failed", false), 60,
+                        Processes.STREAM_LINE_LIMIT);
+        assertThat(docker.failure().code()).isEqualTo("RUNTIME_ERROR");
+        assertThat(docker.failure().message()).contains(
+                "Docker could not start Claude Code in the coding container (exit 126)", "OCI runtime exec failed");
+    }
+
+    @Test
+    void anExceptionInsideTheParserFailsTheAttemptWithAPlainReason() {
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> {
+            if (s.contains("boom")) throw new IllegalArgumentException("private");
+            return s;
+        }, e -> { }, CodingTranscripts.NONE);
+        protocol.accept(INIT);
+        protocol.accept("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"boom\"}]}}");
+        assertThat(protocol.failed()).isTrue();
+        var outcome = finish(protocol);
+        assertThat(outcome.failure().code()).isEqualTo("PARSER_ERROR");
+        assertThat(outcome.failure().message()).contains("IllegalArgumentException", "Retry the task")
+                .doesNotContain("private");
+    }
+
+    @Test
+    void listenerAndTranscriptFailuresNeverChangeTheOutcome() {
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s,
+                e -> { throw new IllegalStateException("lease lost"); },
+                entry -> { throw new IllegalStateException("database down"); });
+        (INIT + TOOL_USE + TOOL_RESULT + RESULT).lines().forEach(protocol);
+        assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+    }
+
+    @Test
+    void failedActivityWritesAreNotedOnceInTheTranscript() {
+        var transcript = new ArrayList<CodingTranscripts.Entry>();
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s,
+                e -> { throw new IllegalStateException("database down"); }, transcript::add);
+        (INIT + TOOL_USE + TOOL_RESULT + RESULT).lines().forEach(protocol);
+        assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(transcript).filteredOn(entry -> entry.kind().equals("note"))
+                .extracting(entry -> entry.detail().get("text"))
+                .containsExactly("Some activity events could not be saved, so the activity log and this"
+                        + " transcript may be incomplete.");
+        assertThat(transcript).extracting(CodingTranscripts.Entry::kind)
+                .containsSubsequence("tool_call", "tool_result", "result");
+    }
+
+    @Test
+    void transcriptKeepsTheConversationInOrderWithoutThinkingOrPartialDeltas() {
+        var transcript = new ArrayList<CodingTranscripts.Entry>();
+        var events = new ArrayList<Map<String, Object>>();
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s.replace("secret-key", "[REDACTED]"),
+                events::add, transcript::add);
+        protocol.prompt("Implement TASK-1 secret-key");
+        (INIT + """
+                {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"PARTIAL_DELTA_SENTINEL"}}}
+                {"type":"assistant","message":{"id":"m1","content":[{"type":"thinking","thinking":"HIDDEN_REASONING_SENTINEL"}]}}
+                {"type":"assistant","message":{"id":"m1","content":[{"type":"redacted_thinking","data":"HIDDEN_REASONING_SENTINEL"}]}}
+                {"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"I will run the tests secret-key"}]}}
+                """ + TOOL_USE + TOOL_RESULT + """
+                {"type":"assistant","message":{"id":"m3","content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"curl -H token:secret-key"}}]}}
+                {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","is_error":false,"content":"echoed secret-key"}]}}
+                """ + RESULT).lines().forEach(protocol);
+        assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+
+        assertThat(transcript).extracting(CodingTranscripts.Entry::kind)
+                .containsExactly("prompt", "text", "tool_call", "tool_result", "tool_call", "tool_result", "result");
+        // A secret in a tool's input or result reaches the transcript only redacted.
+        assertThat(transcript.get(4).detail()).containsEntry("id", "toolu_2");
+        assertThat(transcript.get(4).detail().get("input").toString())
+                .contains("\"command\" : \"curl -H token:[REDACTED]\"");
+        assertThat(transcript.get(5).detail()).containsEntry("id", "toolu_2")
+                .containsEntry("text", "echoed [REDACTED]");
+        assertThat(events).isNotEmpty();
+        assertThat(events.toString())
+                .doesNotContain("HIDDEN_REASONING_SENTINEL", "PARTIAL_DELTA_SENTINEL", "secret-key");
+        assertThat(transcript.get(0).detail()).containsEntry("text", "Implement TASK-1 [REDACTED]");
+        assertThat(transcript.get(1).detail()).containsEntry("text", "I will run the tests [REDACTED]");
+        assertThat(transcript.get(2).detail()).containsEntry("id", "toolu_1").containsEntry("tool", "Bash");
+        assertThat(transcript.get(2).detail().get("input").toString()).contains("\"command\" : \"mvn test\"");
+        assertThat(transcript.get(3).detail()).containsEntry("id", "toolu_1").containsEntry("tool", "Bash")
+                .containsEntry("error", false).containsEntry("text", "BUILD SUCCESS").containsKey("durationMs");
+        assertThat(transcript.get(6).detail()).containsEntry("subtype", "success").containsEntry("error", false)
+                .containsEntry("text", "Done [REDACTED]")
+                .containsEntry("usage", Map.of("inputTokens", 40L, "outputTokens", 5L, "cacheReadTokens", 3L,
+                        "cacheWriteTokens", 2L));
+        assertThat(transcript.toString())
+                .doesNotContain("HIDDEN_REASONING_SENTINEL", "PARTIAL_DELTA_SENTINEL", "secret-key");
+    }
+
+    @Test
+    void aDecisionAfterThinkingKeepsTheThinkingOutOfItsReportAndQuestion() {
+        var transcript = new ArrayList<CodingTranscripts.Entry>();
+        var events = new ArrayList<Map<String, Object>>();
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s, events::add, transcript::add);
+        String answer = "I read the config.\n\nFACTORY_DECISION_REQUIRED: {\n  \"kind\": \"PRODUCT_REQUIREMENTS\",\n"
+                + "  \"question\": \"Which API?\",\n  \"options\": [],\n  \"evidence\": \"Both exist\"\n}\n"
+                + "I will wait for the answer.";
+        (INIT + """
+                {"type":"assistant","message":{"id":"m1","content":[{"type":"thinking","thinking":"HIDDEN_REASONING_SENTINEL"}]}}
+                {"type":"assistant","message":{"id":"m1","content":[{"type":"redacted_thinking","data":"HIDDEN_REASONING_SENTINEL"}]}}
+                """ + JSON.writeValueAsString(Map.of("type", "result", "subtype", "success", "is_error", false,
+                "result", answer))).lines().forEach(protocol);
+
+        var outcome = finish(protocol);
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(outcome.decision().question()).isEqualTo("Which API?");
+        assertThat(outcome.summary()).isEqualTo("I read the config.");
+        assertThat(outcome + transcript.toString() + events).doesNotContain("HIDDEN_REASONING_SENTINEL");
+    }
+
+    @Test
+    void toolResultsAreCutWithAMarkerAndTheTranscriptCapNeverFailsTheAttempt() {
+        var transcript = new ArrayList<CodingTranscripts.Entry>();
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s, e -> { }, transcript::add);
+        protocol.accept(INIT);
+        String big = "z".repeat(ClaudeCodeProtocol.TOOL_RESULT_LIMIT + 100);
+        protocol.accept(TOOL_USE);
+        protocol.accept(TOOL_RESULT.replace("BUILD SUCCESS", big));
+        String cut = transcript.get(1).detail().get("text").toString();
+        assertThat(cut).startsWith("z".repeat(ClaudeCodeProtocol.TOOL_RESULT_LIMIT))
+                .endsWith("[cut: 100 more characters]");
+
+        String text = "w".repeat(1024 * 1024);
+        for (int i = 0; i < 6; i++)
+            protocol.accept("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}");
+        protocol.accept(TOOL_USE);
+        protocol.accept(RESULT);
+        assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(transcript.getLast().kind()).isEqualTo("note");
+        assertThat(transcript.getLast().detail()).containsEntry("text", "Transcript cut at 5 MB; the run went on.");
+        assertThat(transcript.stream().filter(entry -> entry.kind().equals("note")).count()).isEqualTo(1);
+    }
+
+    @Test
+    void toolEventsCarryTelemetryMatchedByToolUseId() {
+        var events = new ArrayList<Map<String, Object>>();
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s.replace("secret-key", "[REDACTED]"),
+                events::add, CodingTranscripts.NONE);
+        protocol.accept(INIT);
+        for (String[] tool : new String[][] {
+                {"toolu_r", "Read", "{\"file_path\":\"/workspace/src/Foo.java\"}"},
+                {"toolu_g", "Grep", "{\"pattern\":\"TODO\"}"},
+                {"toolu_f", "WebFetch", "{\"url\":\"https://example.org/doc\"}"},
+                {"toolu_b", "Bash", "{\"command\":\"mvn test -Dtoken=secret-key\"}"},
+                {"toolu_h", "Bash", "{\"command\":\"python3 - <<'EOF'\\nimport json\\nEOF\"}"}})
+            protocol.accept("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\""
+                    + tool[0] + "\",\"name\":\"" + tool[1] + "\",\"input\":" + tool[2] + "}]}}");
+        protocol.accept("""
+                {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_b","is_error":true,"content":[{"type":"text","text":"Exit code 1\\nBUILD FAILURE secret-key"}]}]}}
+                """);
+        protocol.accept("""
+                {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_r","content":"file text"}]}}
+                """);
+        var tools = events.stream().filter(e -> e.get("activity").toString().startsWith("tool_")).toList();
+        assertThat(tools.get(0)).containsEntry("tool", "Read").containsEntry("path", "/workspace/src/Foo.java");
+        assertThat(tools.get(1)).containsEntry("tool", "Grep").containsEntry("pattern", "TODO");
+        assertThat(tools.get(2)).containsEntry("tool", "WebFetch").containsEntry("url", "https://example.org/doc");
+        assertThat(tools.get(3)).containsEntry("tool", "Bash").containsEntry("command", "mvn test -Dtoken=[REDACTED]");
+        // A heredoc is named by its first line, not by its whole script on one line.
+        assertThat(tools.get(4)).containsEntry("tool", "Bash").containsEntry("command", "python3 - <<'EOF'");
+        assertThat(tools.get(5)).containsEntry("activity", "tool_execution_end").containsEntry("tool", "Bash")
+                .containsEntry("command", "mvn test -Dtoken=[REDACTED]").containsEntry("error", true)
+                .containsEntry("errorText", "Exit code 1 BUILD FAILURE [REDACTED]").containsKey("durationMs");
+        assertThat(tools.get(6)).containsEntry("tool", "Read").containsEntry("path", "/workspace/src/Foo.java")
+                .containsEntry("error", false).doesNotContainKey("errorText");
+        assertThat(events.toString()).doesNotContain("secret-key", "file text");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
             "{}", "{\"input_tokens\":0,\"output_tokens\":0}",
             "{\"input_tokens\":40}", "{\"output_tokens\":5}",
             "{\"input_tokens\":-1,\"output_tokens\":5}", "{\"input_tokens\":40,\"output_tokens\":-1}",
             "{\"input_tokens\":0,\"output_tokens\":5}", "{\"input_tokens\":40,\"output_tokens\":0}"
     })
     void missingOrSyntheticUsageCannotAuthorizeCompleteAccounting(String usage) {
-        var result = JsonMapper.builder().build().readTree(RESULT).deepCopy();
-        ((tools.jackson.databind.node.ObjectNode) result).set("usage", JsonMapper.builder().build().readTree(usage));
+        ObjectNode result = (ObjectNode) JSON.readTree(RESULT);
+        result.set("usage", JSON.readTree(usage));
         var outcome = parse(INIT + result, 0);
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(outcome.metrics()).containsEntry("usageIncomplete", true);
     }
 
-    @ParameterizedTest @ValueSource(strings = {"cache_read_input_tokens", "cache_creation_input_tokens"})
+    @ParameterizedTest
+    @ValueSource(strings = {"cache_read_input_tokens", "cache_creation_input_tokens"})
     void fullyCachedInputStillProvidesUsageEvidence(String cacheCounter) {
         var outcome = parse(INIT + RESULT.replace("\"input_tokens\":40", "\"input_tokens\":0")
                 .replace("\"cache_read_input_tokens\":3,\"cache_creation_input_tokens\":2", "\"" + cacheCounter + "\":40"), 0);
@@ -148,7 +549,8 @@ class ClaudeCodeCodingRuntimeTest {
                 .doesNotContainKey("usageIncomplete");
     }
 
-    @ParameterizedTest @ValueSource(strings = {"", ",\"usage\":{\"input_tokens\":0,\"output_tokens\":0}"})
+    @ParameterizedTest
+    @ValueSource(strings = {"", ",\"usage\":{\"input_tokens\":0,\"output_tokens\":0}"})
     void terminalTotalsCannotHideAnUnaccountedMessage(String usage) {
         String missing = "{\"type\":\"assistant\",\"message\":{\"id\":\"missing\"" + usage + "}}\n";
         var outcome = parse(INIT + missing + assistant("known", 40) + "\n" + RESULT, 0);
@@ -156,28 +558,35 @@ class ClaudeCodeCodingRuntimeTest {
                 .containsEntry("usageIncomplete", true);
     }
 
-    @Test void finalMessageSnapshotCanCompleteEarlierMissingUsage() {
+    @Test
+    void finalMessageSnapshotCanCompleteEarlierMissingUsage() {
         String missing = "{\"type\":\"assistant\",\"message\":{\"id\":\"same\"}}\n";
         var outcome = parse(INIT + missing + assistant("same", 40) + "\n" + RESULT, 0);
         assertThat(outcome.metrics()).containsEntry("inputTokens", 40L).doesNotContainKey("usageIncomplete");
     }
 
-    @Test void streamedFinalUsageCompletesTheIntermediateAssistantSnapshot() {
+    @Test
+    void streamedFinalUsageCompletesTheIntermediateAssistantSnapshot() {
         String streamed = """
-                {"type":"stream_event","event":{"type":"message_start","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0}}}}
-                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0}}}
+                {"type":"stream_event","event":{"type":"message_start","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0,"cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}}
+                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0,"cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}
                 {"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":5}}}
                 {"type":"stream_event","event":{"type":"message_stop"}}
                 """;
         assertThat(parse(INIT + streamed + RESULT, 0).metrics())
                 .containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L).doesNotContainKey("usageIncomplete");
         assertThat(parse(INIT + streamed, 1).metrics())
-                .containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L).containsEntry("usageIncomplete", true);
+                .containsEntry("inputTokens", 40L)
+                .containsEntry("outputTokens", 5L)
+                .containsEntry("cacheWrite5mTokens", 2L)
+                .containsEntry("cacheWrite1hTokens", 0L)
+                .containsEntry("usageIncomplete", true);
     }
 
-    @Test void decisionsUseTheExistingFactoryContractAndRedactSecrets() {
+    @Test
+    void decisionsUseTheExistingFactoryContractAndRedactSecrets() {
         String answer = "FACTORY_DECISION_REQUIRED: {\"kind\":\"REPOSITORY_MISMATCH\",\"question\":\"Which repo secret-key?\",\"options\":[],\"evidence\":\"No owner\"}";
-        String result = JsonMapper.builder().build().writeValueAsString(Map.of("type", "result", "subtype", "success",
+        String result = JSON.writeValueAsString(Map.of("type", "result", "subtype", "success",
                 "is_error", false, "result", answer));
         var outcome = parse(INIT + result, 0);
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
@@ -187,77 +596,223 @@ class ClaudeCodeCodingRuntimeTest {
                 .isEqualTo("INVALID_DECISION_RESULT");
     }
 
-    private static String imageEcho() {
-        return "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":"
-                + "[{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"data\":\"" + "A".repeat(1_046_000) + "\"}}]}]}}";
+    @Test
+    void theReportBeforeADecisionIsRedacted() {
+        String answer = "I looked at secret-key in the config.\n\nFACTORY_DECISION_REQUIRED: "
+                + "{\"kind\":\"PRODUCT_REQUIREMENTS\",\"question\":\"Which API?\",\"options\":[],\"evidence\":\"Both\"}";
+        String result = JSON.writeValueAsString(Map.of("type", "result", "subtype", "success",
+                "is_error", false, "result", answer));
+        var outcome = parse(INIT + result, 0);
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(outcome.summary()).isEqualTo("I looked at [REDACTED] in the config.");
     }
 
-    @Test void theOversizedEchoOfAnImageTheAgentOpenedIsIgnored() {
-        var result = parse(INIT + imageEcho() + "\n" + RESULT, 0);
+    @Test
+    void cacheTtlCountersSurviveTerminalReplacementWithoutDoubleCounting() {
+        ObjectNode terminalResult = resultWithCacheTtl(1L, 1L);
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 0, text -> text, event -> {}, CodingTranscripts.NONE);
+        protocol.accept(INIT);
+        protocol.accept("""
+                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":5,
+                "cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}
+                """);
+        assertThat(protocol.metrics())
+                .containsEntry("cacheWrite5mTokens", 2L)
+                .containsEntry("cacheWrite1hTokens", 0L);
 
-        assertThat(result.status()).as(result.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
-        assertThat(result.metrics().toString()).doesNotContain("AAAA");
+        protocol.accept(terminalResult.toString());
+
+        assertThat(finish(protocol).metrics()).containsEntry("cacheWriteTokens", 2L)
+                .containsEntry("cacheWrite5mTokens", 1L).containsEntry("cacheWrite1hTokens", 1L)
+                .doesNotContainKey("usageIncomplete");
     }
 
-    @Test void onlyTheUserEchoMayBeOversized() {
-        String padding = "x".repeat(520 * 1024);
-        for (String type : List.of("assistant", "stream_event", "result", "system"))
-            assertThat(parse(INIT + "{\"type\":\"" + type + "\",\"padding\":\"" + padding + "\"}\n" + RESULT, 0)
-                    .failure().code()).as(type).isEqualTo("FRAME_TOO_LARGE");
-        assertThat(parse(INIT + imageEcho().replace("\"role\":\"user\"", "\"role\":\"assistant\"") + "\n" + RESULT, 0)
-                .failure().code()).isEqualTo("FRAME_TOO_LARGE");
+    @Test
+    void terminalUsageDoesNotInheritCacheTtlFromIntermediateMessages() {
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 0, text -> text, event -> {}, CodingTranscripts.NONE);
+        protocol.accept(INIT);
+        protocol.accept("""
+                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":5,
+                "cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}
+                """);
+
+        protocol.accept(RESULT);
+
+        assertThat(finish(protocol).metrics())
+                .containsEntry("cacheWriteTokens", 2L)
+                .doesNotContainKeys("cacheWrite5mTokens", "cacheWrite1hTokens");
     }
 
-    @Test void theOutputBudgetGrowsWithTheStagedImages() {
-        var runtime = new ClaudeCodeCodingRuntime(config("api-key"));
+    @ParameterizedTest
+    @ValueSource(strings = {"-1", "1.5", "null", "\"unknown\""})
+    void invalidCacheTtlCountersRemainUnknown(String invalidCounter) {
+        ObjectNode terminalResult = resultWithCacheTtl(2L, 0L);
+        ObjectNode usage = (ObjectNode) terminalResult.path("usage");
+        ObjectNode cacheCreation = (ObjectNode) usage.path("cache_creation");
+        cacheCreation.set("ephemeral_5m_input_tokens", JSON.readTree(invalidCounter));
+
+        CodingOutcome outcome = parse(INIT + terminalResult, 0);
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(outcome.metrics())
+                .containsEntry("cacheWriteTokens", 2L)
+                .containsEntry("cacheWrite1hTokens", 0L)
+                .doesNotContainKey("cacheWrite5mTokens");
+    }
+
+    private static ObjectNode resultWithCacheTtl(long fiveMinuteTokens, long oneHourTokens) {
+        ObjectNode result = (ObjectNode) JSON.readTree(RESULT);
+        ObjectNode usage = (ObjectNode) result.path("usage");
+        ObjectNode cacheCreation = JSON.createObjectNode()
+                .put("ephemeral_5m_input_tokens", fiveMinuteTokens)
+                .put("ephemeral_1h_input_tokens", oneHourTokens);
+        usage.set("cache_creation", cacheCreation);
+        return result;
+    }
+
+    /** Claude Code repeats an image its agent opened as a base64 tool result; the echo says nothing about the result. */
+    @Test
+    void anImageTheAgentOpenedIsNotReadIntoTheOutcome() {
+        String echo = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\","
+                + "\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"data\":\""
+                + "A".repeat(1_046_000) + "\"}}]}]}}";
+
+        var outcome = parse(INIT + echo + "\n" + RESULT, 0);
+
+        assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(outcome.metrics().toString()).doesNotContain("AAAA");
+    }
+
+    /**
+     * Claude Code repeats an opened image twice in one line, in the tool result and in tool_use_result. When the
+     * CLI cannot decode the image it sends the file unchanged, so that line can pass 8 MiB: a run with staged
+     * images reads it, a run without them still stops.
+     */
+    @Test
+    void anImageEchoOverTheBaseLineLimitIsReadOnlyWhenImagesAreStaged(@TempDir Path directory) throws Exception {
+        String data = "A".repeat(4_700_000);
+        String echo = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\","
+                + "\"tool_use_id\":\"toolu_1\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"base64\","
+                + "\"data\":\"" + data + "\",\"media_type\":\"image/png\"}}]}]},\"tool_use_result\":{\"type\":\"image\","
+                + "\"file\":{\"base64\":\"" + data + "\",\"type\":\"image/png\",\"originalSize\":3500000}}}";
+        Path output = Files.writeString(directory.resolve("stream.jsonl"), INIT + echo + "\n" + RESULT);
+        var image = new CodingRequest.Attachment("1", "a.png", "image/png", 3_500_000,
+                "/tmp/factory-attachments/img-1.png", "");
+
+        var staged = streamFrom(output, request().withAttachments(List.of(image)));
+        var plain = streamFrom(output, request());
+
+        assertThat(echo.length()).isGreaterThan(Processes.STREAM_LINE_LIMIT);
+        assertThat(staged.status()).as(staged.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(plain.failure().code()).isEqualTo("FRAME_TOO_LARGE");
+        assertThat(plain.failure().message()).contains("larger than 8 MB");
+    }
+
+    /** The CLI output comes from a local file through the real line reader, with the limit the runtime chose. */
+    private static CodingOutcome streamFrom(Path output, CodingRequest request) {
         var workload = workload();
-        var limit = new AtomicReference<Integer>();
-        when(workload.execute(anyList(), eq(60), anyInt(), any())).thenAnswer(call -> {
-            limit.set(call.getArgument(2));
-            return new Processes.Result(0, INIT + RESULT);
-        });
-        var staged = new CodingRequest.Attachment("1", "a.png", "image/png", 1, "", "")
-                .staged("/tmp/factory-attachments/img-1.png", 1 << 20);
-
-        runtime.code(workload, request().withAttachments(List.of(staged)), 60);
-
-        assertThat(limit.get()).isEqualTo(ClaudeCodeCodingRuntime.EVENT_STREAM_LIMIT + 5 * (1 << 20));
+        when(workload.stream(anyList(), eq(60), anyInt(), any(), any())).thenAnswer(call -> Processes.stream(null,
+                List.of("cat", output.toString()), 60, call.getArgument(2), call.getArgument(3), call.getArgument(4)));
+        return runtime("api-key").code(workload, request, 60, event -> {}, CodingTranscripts.NONE);
     }
 
-    @Test void imagesAreOptInForClaudeCode() {
-        var off = config("api-key");
-        var on = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example/anthropic", "custom/Model-1",
-                "api-key", "secret-key", "secret-token", 10, 4096, "high", true);
+    @Test
+    void imagesAreGivenOnlyToAModelThatSaysItReadsThem() {
+        var reads = new ModelEntry("reads", "anthropic-messages", "http://gateway.example/anthropic", "api-key",
+                "GATEWAY_KEY", "custom/Model-1", ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null, true);
+        var plain = new ModelEntry("plain", "anthropic-messages", "http://gateway.example/anthropic", "api-key",
+                "GATEWAY_KEY", "custom/Model-1", ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null, null);
+        var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(reads, plain), null), "claude-code",
+                Map.of("GATEWAY_KEY", "secret-key")::get);
+        var runtime = new ClaudeCodeCodingRuntime(new DevRuntimeProperties.ClaudeCode(null, 10), catalog);
 
-        assertThat(new ClaudeCodeCodingRuntime(off).acceptsImages()).isFalse();
-        assertThat(new ClaudeCodeCodingRuntime(on).acceptsImages()).isTrue();
+        assertThat(runtime.acceptsImages(new CodingRequest.RunSettings("reads", null, null))).isTrue();
+        assertThat(runtime.acceptsImages(new CodingRequest.RunSettings("plain", null, null))).isFalse();
     }
 
     private static CodingOutcome parse(String text, int exitCode) {
-        var protocol = new ClaudeCodeProtocol("custom/Model-1", s -> s.replace("secret-key", "[REDACTED]"), e -> {});
+        return parse(text, exitCode, 0);
+    }
+
+    private static CodingOutcome parse(String text, int exitCode, int maxTurns) {
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", maxTurns, s -> s.replace("secret-key", "[REDACTED]"),
+                e -> {}, CodingTranscripts.NONE);
         text.lines().forEach(protocol);
-        return protocol.outcome(exitCode);
+        return protocol.outcome(new Processes.Streamed(exitCode, false, false, "", false), 60,
+                Processes.STREAM_LINE_LIMIT);
+    }
+
+    private static Processes.Streamed feed(Predicate<String> lines, String text, int exitCode, String stderr) {
+        for (String line : text.lines().toList()) {
+            if (!lines.test(line)) break;
+        }
+        return new Processes.Streamed(exitCode, false, false, stderr, false);
     }
 
     private static String assistant(String id, int input) {
         return "{\"type\":\"assistant\",\"message\":{\"id\":\"" + id + "\",\"usage\":{\"input_tokens\":" + input + ",\"output_tokens\":2}}}";
     }
 
+    @Test
+    void aPatchIsCheckedForEveryModelSecretOfSixteenOrMoreCharacters() {
+        var runtime = runtime(null, "http://gateway.example/anthropic", "custom/Model-1", "api-key", 10,
+                "example-0123456789abcdef");
+
+        assertThat(runtime.holdsSecret("token: example-0123456789abcdef")).isTrue();
+        // secret-key and secret-token are too short to be told apart from ordinary code.
+        assertThat(runtime.holdsSecret("secret-key secret-token")).isFalse();
+    }
+
+    /** The outcome of a CLI run that exited with 0 within its time limit. */
+    static CodingOutcome finish(ClaudeCodeProtocol protocol) {
+        return protocol.outcome(new Processes.Streamed(0, false, false, "", false), 60, Processes.STREAM_LINE_LIMIT);
+    }
+
+    static ClaudeCodeCodingRuntime runtime(String authentication) {
+        return runtime(null, "http://gateway.example/anthropic", "custom/Model-1", authentication, 10,
+                "example-secret");
+    }
+
+    /**
+     * A runtime whose default model "gateway" sits at {@code baseUrl}: its secret is secret-key with api-key
+     * authentication and secret-token with a bearer token. A second gateway model holds the other secret, and
+     * example-large a third one; every secret in the file is redacted.
+     */
+    static ClaudeCodeCodingRuntime runtime(String image, String baseUrl, String model, String authentication,
+                                           int maxTurns, String exampleSecret) {
+        return runtime(image, baseUrl, model, authentication, maxTurns, exampleSecret, false);
+    }
+
+    /** {@code images}: the default model reads images. */
+    static ClaudeCodeCodingRuntime runtime(String image, String baseUrl, String model, String authentication,
+                                           int maxTurns, String exampleSecret, boolean images) {
+        var apiKey = "api-key".equals(authentication);
+        var gateway = new ModelEntry("gateway", "anthropic-messages", baseUrl, authentication,
+                apiKey ? "GATEWAY_KEY" : "GATEWAY_TOKEN", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null,
+                images ? Boolean.TRUE : null);
+        var other = new ModelEntry("gateway-other", "anthropic-messages", baseUrl, apiKey ? "bearer-token" : "api-key",
+                apiKey ? "GATEWAY_TOKEN" : "GATEWAY_KEY", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null, null);
+        var example = new ModelEntry("example-large", "anthropic-messages", "https://api.example.com/anthropic",
+                "bearer-token", "FACTORY_EXAMPLE_API_KEY", "example-large", List.of("low", "high", "max"), "max", 8192,
+                null, null);
+        var secrets = Map.of("GATEWAY_KEY", "secret-key", "GATEWAY_TOKEN", "secret-token",
+                "FACTORY_EXAMPLE_API_KEY", exampleSecret);
+        var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(gateway, other, example), null),
+                "claude-code", secrets::get);
+        return new ClaudeCodeCodingRuntime(new DevRuntimeProperties.ClaudeCode(image, maxTurns), catalog);
+    }
+
     private static DockerWorkloads.Workload workload() {
         var workload = mock(DockerWorkloads.Workload.class);
-        when(workload.execute(anyList(), eq(30))).thenReturn(new Processes.Result(0, ""));
-        when(workload.execute(List.of("claude", "--version"), 30))
+        when(workload.execute(anyList(), eq(30), eq(Processes.OUTPUT_LIMIT), isNull())).thenReturn(new Processes.Result(0, ""));
+        when(workload.execute(List.of("claude", "--version"), 30, Processes.OUTPUT_LIMIT, null))
                 .thenReturn(new Processes.Result(0, ClaudeCodeCodingRuntime.VERSION + " (Claude Code)"));
         return workload;
     }
 
-    private static DevRuntimeProperties.ClaudeCode config(String authentication) {
-        return new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example/anthropic", "custom/Model-1",
-                authentication, "secret-key", "secret-token", 10, 4096, "high");
-    }
 
     static CodingRequest request() {
         return new CodingRequest("TASK-1", "Implement task", "Description", List.of(), List.of(), List.of(), List.of(),
-                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null);
+                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null, null, List.of());
     }
 }

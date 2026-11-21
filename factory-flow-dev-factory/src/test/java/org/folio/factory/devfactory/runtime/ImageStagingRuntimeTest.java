@@ -49,12 +49,12 @@ class ImageStagingRuntimeTest {
 
     @BeforeEach
     void wire() {
-        when(delegate.acceptsImages()).thenReturn(true);
-        when(delegate.code(any(), any(), anyInt(), any())).thenAnswer(invocation -> {
+        when(delegate.acceptsImages(any())).thenReturn(true);
+        when(delegate.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
             received.set(invocation.getArgument(1));
             return CodingOutcome.completed("Done", Map.of());
         });
-        when(workload.execute(anyList(), anyInt())).thenReturn(new Processes.Result(0, ""));
+        when(workload.execute(anyList(), anyInt(), anyInt(), any())).thenReturn(new Processes.Result(0, ""));
         doAnswer(invocation -> {
             Path directory = Path.of((String) invocation.getArgument(0));
             try (var files = Files.list(directory)) {
@@ -75,11 +75,11 @@ class ImageStagingRuntimeTest {
     private static CodingRequest request(CodingRequest.Attachment... attachments) {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(), List.of(),
                 new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
-                CodingRequest.Constraints.defaults(), List.of(attachments));
+                CodingRequest.Constraints.defaults(), null, List.of(attachments));
     }
 
     private CodingOutcome run(ImageStagingRuntime runtime, CodingRequest request) {
-        return runtime.code(workload, request, 60, events::add);
+        return runtime.code(workload, request, 60, events::add, CodingTranscripts.NONE);
     }
 
     @Test
@@ -93,7 +93,7 @@ class ImageStagingRuntimeTest {
                 .containsExactly("/tmp/factory-attachments/img-1.png", "/tmp/factory-attachments/img-2.jpg");
         assertThat(copied).containsOnlyKeys("img-1.png", "img-2.jpg");
         assertThat(copied.get("img-1.png")).isEqualTo(PNG);
-        verify(workload).execute(List.of("mkdir", "-p", "/tmp/factory-attachments"), 30);
+        verify(workload).execute(List.of("mkdir", "-p", "/tmp/factory-attachments"), 30, Processes.OUTPUT_LIMIT, null);
     }
 
     @Test
@@ -106,6 +106,24 @@ class ImageStagingRuntimeTest {
         assertThat(events.get(0)).containsEntry("activity", "attachments_staged");
         assertThat(events.get(0).get("images").toString())
                 .contains("filename=a.png", "bytes=" + PNG.length).containsPattern("sha256=[0-9a-f]{64}");
+    }
+
+    @Test
+    void aFailedWriteOfTheStagedEventDoesNotStopTheAttempt() {
+        when(jira.downloadAttachment("1", 1000)).thenReturn(PNG);
+        var expected = CodingOutcome.completed("Done", Map.of());
+        when(delegate.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
+            received.set(invocation.getArgument(1));
+            return expected;
+        });
+
+        var outcome = runtime(0, 1000).code(workload, request(attachment("1", "a.png", 10)), 60, event -> {
+            throw new IllegalStateException("audit write failed");
+        }, CodingTranscripts.NONE);
+
+        assertThat(outcome).isSameAs(expected);
+        assertThat(received.get().attachments()).extracting(CodingRequest.Attachment::path)
+                .containsExactly("/tmp/factory-attachments/img-1.png");
     }
 
     @Test
@@ -141,7 +159,7 @@ class ImageStagingRuntimeTest {
 
     @Test
     void aRuntimeThatCannotReadImagesDownloadsNothingAndSaysSo() {
-        when(delegate.acceptsImages()).thenReturn(false);
+        when(delegate.acceptsImages(any())).thenReturn(false);
 
         run(runtime(0, 1000), request(attachment("1", "a.png", 1)));
 
@@ -177,12 +195,14 @@ class ImageStagingRuntimeTest {
     }
 
     @Test
-    void bothRuntimesAcceptImagesOnlyWhenTheOperatorEnablesThem() {
-        var claude = new DevRuntimeProperties.ClaudeCode(null, null, null, null, null, null, null, null, null, null);
+    void piAcceptsImagesOnlyWhenItsConfigurationSaysSo() {
+        // Claude Code reads it from the model entry: ClaudeCodeCodingRuntimeTest#imagesAreGivenOnlyToAModelThatSaysItReadsThem.
+        assertThat(new PiCodingRuntime(pi(false)).acceptsImages(null)).isFalse();
+        assertThat(new PiCodingRuntime(pi(true)).acceptsImages(null)).isTrue();
+    }
 
-        assertThat(new ClaudeCodeCodingRuntime(claude).acceptsImages()).isFalse();
-        assertThat(new PiCodingRuntime(new DevRuntimeProperties.Coding("i", "p", "m", null, null, "k", "pi", null, null))
-                .acceptsImages()).isFalse();
+    private static DevRuntimeProperties.Pi pi(boolean images) {
+        return new DevRuntimeProperties.Pi("i", "p", "m", null, null, "k", null, null, null, images);
     }
 
     @Test
@@ -196,6 +216,6 @@ class ImageStagingRuntimeTest {
         assertThat(runtime.id()).isEqualTo("pi");
         assertThat(runtime.image()).isEqualTo("img");
         assertThat(runtime.redact("x")).isEqualTo("y");
-        assertThat(runtime.acceptsImages()).isTrue();
+        assertThat(runtime.acceptsImages(null)).isTrue();
     }
 }

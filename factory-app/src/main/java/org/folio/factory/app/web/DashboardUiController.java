@@ -1,21 +1,20 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.tasks.persistence.RunState;
+import org.folio.factory.app.tasks.presentation.StatisticsRows;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
-import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.FlowRegistryEntry;
-import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
-import org.folio.factory.core.repository.HitlReviewRepository;
-import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
@@ -26,75 +25,50 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 
 /**
- * Server-rendered operational views: the Dashboard home ({@code /}) with KPI
- * cards and interactive charts, the platform Status page (engine, connectors,
- * flow registry) and the Audit page (paged, filterable event feed). All draw on
- * the same beans as their REST counterparts.
+ * Server-rendered operational views: the Dashboard home ({@code /}) with KPI cards, one line with what the
+ * Developer Flow spent and a link to its Statistics tab, and interactive charts; the platform Status page (engine,
+ * connectors, flow registry) and the Audit page (paged, filterable event feed). All draw on the same beans as their
+ * REST counterparts.
  */
 @Controller
+@RequiredArgsConstructor
 public class DashboardUiController {
 
-    private static final int DEFAULT_DAYS = 14;
     private static final int DEFAULT_AUDIT_SIZE = 50;
-    private static final Set<Integer> ALLOWED_DAYS = Set.of(1, 7, 14, 30, 90);
 
     private final List<ConnectorHealth> connectors;
     private final FlowRegistry flowRegistry;
     private final EngineProperties engineProperties;
     private final FlowRegistryEntryRepository flowRegistryEntries;
-    private final PipelineExecutionRepository executions;
-    private final HitlReviewRepository reviews;
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
     private final DashboardStatsService dashboardStats;
+    private final StatisticsRows statistics;
 
-    public DashboardUiController(List<ConnectorHealth> connectors, FlowRegistry flowRegistry,
-                                 EngineProperties engineProperties,
-                                 FlowRegistryEntryRepository flowRegistryEntries,
-                                 PipelineExecutionRepository executions, HitlReviewRepository reviews,
-                                 AuditEventRepository audit, JsonMapper jsonMapper,
-                                 DashboardStatsService dashboardStats) {
-        this.connectors = connectors;
-        this.flowRegistry = flowRegistry;
-        this.engineProperties = engineProperties;
-        this.flowRegistryEntries = flowRegistryEntries;
-        this.executions = executions;
-        this.reviews = reviews;
-        this.audit = audit;
-        this.jsonMapper = jsonMapper;
-        this.dashboardStats = dashboardStats;
+    /** A run tile: the runs started in the period that are in one state, or all of them, linked to that list. */
+    public record RunTile(String label, String count, String url) {
     }
 
     @GetMapping("/")
-    public String dashboard(@RequestParam(name = "days", defaultValue = "14") int days, Model model) {
-        int window = ALLOWED_DAYS.contains(days) ? days : DEFAULT_DAYS;
+    public String dashboard(@RequestParam(name = "days", defaultValue = "14") String days, Model model) {
+        var period = RunPeriod.of(days).orElse(RunPeriod.DEFAULT);
+        int window = period.days();
         model.addAttribute("days", window);
-
-        Map<ExecutionStatus, Long> byStatus = new EnumMap<>(ExecutionStatus.class);
-        for (Object[] row : executions.countGroupedByStatus()) {
-            byStatus.put((ExecutionStatus) row[0], (Long) row[1]);
-        }
-        long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
-        model.addAttribute("totalExecutions", total);
-        model.addAttribute("completedCount", byStatus.getOrDefault(ExecutionStatus.COMPLETED, 0L));
-        model.addAttribute("awaitingHitlCount", byStatus.getOrDefault(ExecutionStatus.AWAITING_HITL, 0L));
-        model.addAttribute("failedCount", byStatus.getOrDefault(ExecutionStatus.FAILED_ESCALATED, 0L));
-        model.addAttribute("cancelledCount", byStatus.getOrDefault(ExecutionStatus.CANCELLED, 0L));
-        model.addAttribute("rejectedCount", byStatus.getOrDefault(ExecutionStatus.REJECTED, 0L));
-
-        model.addAttribute("pendingReviews", reviews.countByStatus(HitlReviewStatus.PENDING));
+        model.addAttribute("periods", RunPeriod.values());
+        model.addAttribute("runTiles", runTiles(window));
+        statistics.spentSince(period.since(Instant.now()).toInstant())
+                .ifPresent(spent -> model.addAttribute("developerSpent", spent));
 
         model.addAttribute("engineEnabled", engineProperties.enabled());
         Map<String, Boolean> connectorConfig = connectorConfiguration();
@@ -102,24 +76,34 @@ public class DashboardUiController {
         model.addAttribute("connectorsConfigured", configured);
         model.addAttribute("connectorsTotal", connectorConfig.size());
 
-        // Unlike the all-time KPIs above, token spend is scoped to the selected window.
         TokenUsage tokens = dashboardStats.tokenUsage(window);
         model.addAttribute("tokenTotal", UiFormat.count(tokens.totalTokens()));
         model.addAttribute("tokenBreakdown",
                 UiFormat.count(tokens.promptTokens()) + " in · " + UiFormat.count(tokens.completionTokens()) + " out");
-        model.addAttribute("stepTokens", dashboardStats.stepTokens(window).stream()
-                .map(DashboardUiController::stepTokenRow).toList());
+        model.addAttribute("stepTokens", dashboardStats.stepTokens(window).stream().map(this::stepTokenRow).toList());
         return "dashboard";
     }
 
-    private static Map<String, Object> stepTokenRow(StepTokenCount step) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("flowId", step.flowId());
-        row.put("stepId", step.stepId());
-        row.put("prompt", UiFormat.count(step.promptTokens()));
-        row.put("completion", UiFormat.count(step.completionTokens()));
-        row.put("total", UiFormat.count(step.totalTokens()));
-        return row;
+    /**
+     * The runs started in the window: the total, then one tile per state in the order and words of the Executions
+     * Status filter, so the states add up to the total. Each opens the list with the same filters.
+     */
+    private List<RunTile> runTiles(int days) {
+        var byState = dashboardStats.countByState(days);
+        var tiles = new ArrayList<RunTile>();
+        var total = byState.values().stream().mapToLong(Long::longValue).sum();
+        tiles.add(new RunTile("Total runs", UiFormat.count(total), "/executions?days=" + days));
+        for (var state : RunState.values()) {
+            tiles.add(new RunTile(state.getLabel(), UiFormat.count(byState.getOrDefault(state, 0L)),
+                    "/executions?status=" + state.name() + "&days=" + days));
+        }
+        return List.copyOf(tiles);
+    }
+
+    private StepTokenRow stepTokenRow(StepTokenCount step) {
+        return new StepTokenRow(UiFormat.flowName(flowRegistry, step.flowId()), UiFormat.inWords(step.stepId()),
+                UiFormat.count(step.promptTokens()), UiFormat.count(step.completionTokens()),
+                UiFormat.count(step.totalTokens()));
     }
 
     @GetMapping("/status")
@@ -132,14 +116,8 @@ public class DashboardUiController {
         engine.put("leaseTimeoutSeconds", engineProperties.leaseTimeoutSeconds());
         model.addAttribute("engine", engine);
 
-        List<Map<String, Object>> connectorRows = new ArrayList<>();
-        connectorConfiguration().forEach((name, configured) -> {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("name", name);
-            row.put("configured", configured);
-            connectorRows.add(row);
-        });
-        model.addAttribute("connectors", connectorRows);
+        model.addAttribute("connectors", connectorConfiguration().entrySet().stream()
+                .map(entry -> connectorRow(entry.getKey(), entry.getValue())).toList());
 
         model.addAttribute("flows", flowRegistry.all().stream().map(this::flowRow).toList());
         return "status";
@@ -155,21 +133,7 @@ public class DashboardUiController {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampedSize);
         AuditEventType type = UiFormat.enumOrNull(AuditEventType.class, eventType);
 
-        // Slice, not Page: the audit table is append-only and unbounded, so a total
-        // count(*) per page view would degrade without limit.
-        Slice<AuditEvent> result;
-        if (executionId == null) result = type == null
-                ? audit.findAllByOrderByIdDesc(pageable)
-                : audit.findByEventTypeOrderByIdDesc(type, pageable);
-        else {
-            List<AuditEvent> filtered = new ArrayList<>(audit.findByExecutionIdOrderByIdAsc(executionId));
-            Collections.reverse(filtered);
-            if (type != null) filtered.removeIf(event -> event.getEventType() != type);
-            int start = (int) Math.min(pageable.getOffset(), filtered.size());
-            int end = Math.min(start + pageable.getPageSize(), filtered.size());
-            result = new SliceImpl<>(filtered.subList(start, end), pageable, end < filtered.size());
-        }
-
+        Slice<AuditEvent> result = auditSlice(type, executionId, pageable);
         model.addAttribute("events", result.getContent().stream()
                 .map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("page", result);
@@ -183,6 +147,24 @@ public class DashboardUiController {
         return "audit";
     }
 
+    /**
+     * Newest first. Slice, not Page: the audit table is append-only and unbounded, so a total
+     * count(*) per page view would degrade without limit.
+     */
+    private Slice<AuditEvent> auditSlice(AuditEventType type, UUID executionId, Pageable pageable) {
+        if (executionId == null) {
+            return type == null
+                    ? audit.findAllByOrderByIdDesc(pageable)
+                    : audit.findByEventTypeOrderByIdDesc(type, pageable);
+        }
+        List<AuditEvent> filtered = new ArrayList<>(audit.findByExecutionIdOrderByIdAsc(executionId));
+        Collections.reverse(filtered);
+        if (type != null) filtered.removeIf(event -> event.getEventType() != type);
+        int start = (int) Math.min(pageable.getOffset(), filtered.size());
+        int end = Math.min(start + pageable.getPageSize(), filtered.size());
+        return new SliceImpl<>(filtered.subList(start, end), pageable, end < filtered.size());
+    }
+
     private Map<String, Boolean> connectorConfiguration() {
         Map<String, Boolean> byName = new TreeMap<>();
         for (ConnectorHealth connector : connectors) {
@@ -191,16 +173,40 @@ public class DashboardUiController {
         return byName;
     }
 
-    private Map<String, Object> flowRow(FlowDescriptor flow) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", flow.id());
-        row.put("name", flow.name());
-        row.put("version", flow.version());
-        row.put("registeredAt", flowRegistryEntries
-                .findById(new FlowRegistryEntry.Key(flow.id(), flow.version()))
-                .map(entry -> UiFormat.format(entry.getRegisteredAt()))
-                .orElse("—"));
-        return row;
+    /**
+     * One connector card. Jira without sign-in still serves My tasks, which reads it with the base URL alone, so
+     * its card says so instead of only "advisory mode".
+     */
+    private static ConnectorRow connectorRow(String name, boolean configured) {
+        if (configured) {
+            return new ConnectorRow(name, true, null, null);
+        }
+        return "jira".equals(name)
+                ? new ConnectorRow(name, false, "Not configured for Test Factory sync: set"
+                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN to turn it on."
+                        + " My tasks reads Jira with FACTORY_CONNECTORS_JIRA_BASE_URL alone and sees public issues"
+                        + " without them.", "/developer/configuration")
+                : new ConnectorRow(name, false,
+                        "Sync actions run in advisory mode and show as Connector skipped in the audit log.", null);
+    }
+
+    private FlowRow flowRow(FlowDescriptor flow) {
+        var registeredAt = flowRegistryEntries.findById(new FlowRegistryEntry.Key(flow.id(), flow.version()))
+                .map(entry -> PageTime.day(entry.getRegisteredAt()))
+                .orElse(null);
+        return new FlowRow(flow.id(), flow.name(), flow.version(), registeredAt, UiFormat.flowDefinitionUrl(flow.id()));
+    }
+
+    /** The tokens of one step: the flow by its name, the step in the words of the Definition tab, grouped counts. */
+    public record StepTokenRow(String flow, String step, String tokensIn, String tokensOut, String total) {
+    }
+
+    /** A connector card; {@code configurationUrl} links the page that shows its other use, or is null. */
+    public record ConnectorRow(String name, boolean configured, String note, String configurationUrl) {
+    }
+
+    /** A registered flow; {@code url} opens its Definition. */
+    public record FlowRow(String id, String name, String version, PageTime registeredAt, String url) {
     }
 
 }

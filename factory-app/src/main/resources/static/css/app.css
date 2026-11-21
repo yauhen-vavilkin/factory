@@ -16,8 +16,10 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-code, pre, kbd, samp { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+code, pre, kbd, samp { font-family: var(--font-mono); }
 h1, h2, h3, h4 { font-weight: 600; letter-spacing: -0.025em; line-height: 1.25; }
+/* One section heading size; a heading class may set its own. */
+h2 { font-size: 16px; }
 a { text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible {
@@ -45,11 +47,38 @@ a:hover { text-decoration: underline; }
   border-right: 1px solid hsl(var(--border));
   overflow-y: auto;
 }
+/* The menu toggle and the theme button start where the menu labels start. */
 .sidebar-brand {
   display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  padding: 0.25rem 0.5rem 0.75rem;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0 0.25rem 0.25rem 0.5rem;
+}
+.sidebar-menu { flex: 1 1 auto; display: flex; flex-direction: column; }
+.menu-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: transparent;
+  color: hsl(var(--sidebar-foreground));
+  cursor: pointer;
+}
+.menu-toggle:hover { background: hsl(var(--accent)); }
+/* The collapsed menu is a narrow rail: the open button and the name, read from bottom to top. */
+html[data-menu="collapsed"] .app-shell { grid-template-columns: 52px minmax(0, 1fr); }
+html[data-menu="collapsed"] .sidebar { align-items: center; padding: 14px 0; }
+html[data-menu="collapsed"] .sidebar-menu { display: none; }
+html[data-menu="collapsed"] .sidebar-brand { flex-direction: column; gap: 18px; padding: 0; }
+html[data-menu="collapsed"] .sidebar-brand strong {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground));
 }
 .sidebar-brand strong {
   font-size: 0.9375rem;
@@ -80,25 +109,29 @@ a:hover { text-decoration: underline; }
   transition: background-color 150ms ease, color 150ms ease;
 }
 .nav-item:hover {
-  background: hsl(var(--accent));
+  background: hsl(var(--secondary-hover) / 0.6);
   color: hsl(var(--accent-foreground));
   text-decoration: none;
 }
 .nav-item[aria-current="page"] {
-  background: hsl(var(--secondary));
+  background: hsl(var(--secondary-hover));
   color: hsl(var(--secondary-foreground));
   font-weight: 600;
 }
-.sidebar-footer { margin-top: auto; padding: 0.25rem 0.25rem 0; }
+.sidebar-footer { margin-top: auto; padding: 0.25rem 0.25rem 0 0; }
+.sidebar-footer .btn { padding-inline: 8px; }
+.sidebar .btn-ghost:hover { background: hsl(var(--secondary-hover) / 0.6); }
 
+/* Centered in the space next to the menu. One content width (1040 px) for every page and its flash messages, so
+   the edges do not move between pages; wide tables scroll in their own box. */
 .main {
   padding: 2rem;
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
+  max-width: calc(1040px + 4rem);
+  margin-inline: auto;
 }
 .page-header { margin-bottom: 1.5rem; }
-.page-header h1 { font-size: 1.5rem; }
+.page-header h1 { font-size: 1.5rem; line-height: 36px; }
 .page-description {
   margin-top: 0.375rem;
   font-size: 0.9375rem;
@@ -146,8 +179,9 @@ a:hover { text-decoration: underline; }
 }
 .card-header + .card-content { padding-top: 0; }
 .card-header .badge { align-self: flex-start; }
-.card-title { font-size: 1rem; font-weight: 600; }
-.card-description { font-size: 0.875rem; color: hsl(var(--muted-foreground)); }
+.card-title { font-size: 1rem; font-weight: 600; line-height: 24px; }
+/* A long name such as FACTORY_CONNECTORS_JIRA_API_TOKEN wraps inside the card instead of running out of it. */
+.card-description { font-size: 0.875rem; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
 .card-content { padding: 1.25rem 1.5rem; }
 .card-footer {
   display: flex;
@@ -157,17 +191,17 @@ a:hover { text-decoration: underline; }
   border-top: 1px solid hsl(var(--border));
 }
 
-/* ---------- button ---------- */
+/* ---------- button: one size in the whole console, 30 px high with 13 px text ---------- */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  height: 2.25rem;
-  padding: 0 1rem;
+  height: 30px;
+  padding: 0 12px;
   border: 1px solid transparent;
   border-radius: calc(var(--radius) - 0.125rem);
-  font-size: 0.875rem;
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -185,14 +219,15 @@ a:hover { text-decoration: underline; }
   color: hsl(var(--primary-foreground));
 }
 .btn-primary:hover { background: hsl(var(--primary) / 0.9); }
-.btn-outline {
-  background: hsl(var(--background));
-  border-color: hsl(var(--border));
-  color: hsl(var(--foreground));
+/* Every action that is not the main one of its screen: a light grey fill, never white on white. */
+.btn-secondary, .btn-outline {
+  background: hsl(var(--secondary));
+  border-color: hsl(var(--strong-border));
+  color: hsl(var(--secondary-foreground));
 }
-.btn-outline:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
+.btn-secondary:hover, .btn-outline:hover {
+  background: hsl(var(--secondary-hover));
+  color: hsl(var(--secondary-foreground));
 }
 .btn-ghost {
   background: transparent;
@@ -207,11 +242,108 @@ a:hover { text-decoration: underline; }
   color: hsl(var(--destructive-foreground));
 }
 .btn-destructive:hover { background: hsl(var(--destructive) / 0.9); }
-.btn-sm {
-  height: 2rem;
-  padding: 0 0.75rem;
-  font-size: 0.8125rem;
+/* The buttons of one column of a list have one width. */
+.btn-col { width: 96px; padding-inline: 8px; }
+
+/* ---------- chip: one shape for every state; only the tone changes ---------- */
+/* As wide as its text, also as the child of a flex column or a grid cell, which would stretch it. */
+.chip {
+  --chip-tone: var(--muted-foreground);
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid hsl(var(--chip-tone) / 0.4);
+  border-radius: 9999px;
+  background: hsl(var(--chip-tone) / 0.1);
+  color: hsl(var(--chip-tone));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
 }
+.chip::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8); }
+.chip-neutral { color: hsl(var(--foreground)); }
+.chip-neutral::before { background: hsl(var(--muted-foreground)); }
+.chip-info { --chip-tone: var(--info); }
+.chip-success { --chip-tone: var(--success); }
+.chip-warning { --chip-tone: var(--warning); }
+.chip-danger { --chip-tone: var(--destructive); }
+/* Engine and review statuses (statusBadge); a status without a rule keeps the muted tone. */
+.chip-status-PENDING, .chip-status-RUNNING, .chip-status-AWAITING_SUBFLOW { --chip-tone: var(--info); }
+.chip-status-AWAITING_HITL, .chip-status-AMENDED { --chip-tone: var(--warning); }
+.chip-status-COMPLETED, .chip-status-APPROVED { --chip-tone: var(--success); }
+.chip-status-FAILED_ESCALATED, .chip-status-REJECTED { --chip-tone: var(--destructive); }
+.chip-status-CANCELLED { color: hsl(var(--foreground)); }
+.chip-status-CANCELLED::before { background: hsl(var(--muted-foreground)); }
+/* Links that leave Factory (Jira, GitHub) carry an arrow so they look clickable. */
+.ext-link { display: inline-flex; align-items: center; gap: 4px; }
+.ext-link::after {
+  content: "";
+  width: 11px;
+  height: 11px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17L17 7M9 7h8v8'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17L17 7M9 7h8v8'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* A disclosure looks like a small secondary button with a chevron that points right when closed and down
+   when open. The opened content is one indented box tied to its summary, never loose page text. */
+.disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid hsl(var(--strong-border));
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 150ms ease;
+}
+.disclosure > summary:hover {
+  background: hsl(var(--secondary-hover));
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before,
+.fold > summary::before {
+  content: "";
+  flex: none;
+  display: block;
+  width: 13px;
+  height: 13px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform 150ms ease;
+}
+.disclosure[open] > summary::before,
+.fold[open] > summary::before { transform: rotate(90deg); }
+/* The content box of an open details element; browsers without ::details-content show it unboxed. */
+.disclosure[open]::details-content {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--subtle));
+}
+.disclosure[open] > :not(summary) + :not(summary) { margin-top: 8px; }
 
 /* ---------- badge ---------- */
 .badge {
@@ -232,40 +364,33 @@ a:hover { text-decoration: underline; }
   color: hsl(var(--foreground));
   background: transparent;
 }
-.badge-success, .badge-status-COMPLETED, .badge-status-APPROVED, .badge-status-DELIVERED {
+.badge-success {
   background: hsl(var(--success));
   color: hsl(var(--success-foreground));
 }
-.badge-status-AWAITING_HITL, .badge-status-AWAITING_PR, .badge-status-AMENDED {
-  background: hsl(var(--warning));
-  color: hsl(var(--warning-foreground));
-}
-.badge-destructive, .badge-status-FAILED_ESCALATED, .badge-status-REJECTED,
-.badge-status-DEVELOPMENT_FAILED, .badge-status-VERIFICATION_FAILED, .badge-status-DELIVERY_BLOCKED,
-.badge-status-UNSUPPORTED, .badge-status-BLOCKED, .badge-status-BLOCKED_ENVIRONMENT,
-.badge-status-REPOSITORY_MISMATCH, .badge-status-OUTCOME_UNAVAILABLE {
+.badge-destructive {
   background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground));
 }
-.badge-muted, .badge-status-CANCELLED {
+.badge-muted {
   background: hsl(var(--muted));
   /* secondary-foreground, not muted-foreground: the latter is only ~4.2:1 on
      --muted in the light theme, under WCAG AA for this 12px text. */
   color: hsl(var(--secondary-foreground));
 }
-.badge-status-PENDING, .badge-status-RUNNING, .badge-status-AWAITING_SUBFLOW, .badge-status-VERIFIED {
-  border-color: hsl(var(--border));
-  color: hsl(var(--foreground));
-  background: transparent;
-}
 
 /* ---------- table ---------- */
 .table-wrap {
+  position: relative;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   overflow-x: auto;
 }
 .table-wrap table { margin: 0; }
+/* A cell that must stay on one line, such as a run name or a date; the table scrolls in its box instead. */
+td.nowrap { white-space: nowrap; }
+/* The action column of a list: as wide as its button and at the right edge of the row, as on My tasks. */
+.cell-action { width: 1%; white-space: nowrap; text-align: right; }
 table {
   width: 100%;
   border-collapse: collapse;
@@ -280,7 +405,7 @@ thead th {
 }
 tbody td { padding: 0.75rem 1rem; border-top: 1px solid hsl(var(--border)); vertical-align: top; }
 tbody tr { transition: background-color 150ms ease; }
-tbody tr:hover { background: hsl(var(--muted) / 0.4); }
+tbody tr:hover { background: hsl(var(--secondary-hover) / 0.4); }
 .empty-state {
   padding: 3rem 1.5rem;
   text-align: center;
@@ -299,6 +424,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .field { display: flex; flex-direction: column; gap: 0.375rem; }
 .field + .field { margin-top: 1rem; }
 .label { font-size: 14px; font-weight: 500; }
+/* Inputs and selects have the button size: 30 px high with 13 px text. */
 .input, .select, .textarea {
   width: 100%;
   border: 1px solid hsl(var(--input));
@@ -306,11 +432,19 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   padding: 0 0.75rem;
-  height: 2.25rem;
-  font-size: 0.875rem;
+  height: 30px;
+  font-size: 13px;
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
-.textarea { height: auto; min-height: 5rem; padding: 0.5rem 0.75rem; line-height: 1.5; resize: vertical; }
+/* Three whole lines: 3 × 21 px of text, 8 px padding and a 1 px border on each side. */
+.textarea {
+  height: auto;
+  min-height: 81px;
+  padding: 0.5rem 0.75rem;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
 .select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -326,7 +460,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .input::placeholder, .textarea::placeholder { color: hsl(var(--muted-foreground)); }
 .input:disabled, .select:disabled, .textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 .textarea-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   min-height: 20rem;
   tab-size: 2;
@@ -336,14 +470,15 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 /* ---------- tabs ---------- */
 .tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: 16px;
   border-bottom: 1px solid hsl(var(--border));
   margin-bottom: 1.5rem;
 }
+/* The size of the Developer Flow tabs (27 px high), so the tabs of every page look the same. */
 .tabs [role="tab"], .tabs a {
   display: inline-flex;
   align-items: center;
-  padding: 0.5rem 0.875rem;
+  padding: 0 0 4px;
   margin-bottom: -1px;
   border-bottom: 2px solid transparent;
   font-size: 0.875rem;
@@ -371,6 +506,17 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   transition: opacity 300ms ease;
 }
 .alert.alert-hiding { opacity: 0; }
+/* A notice that goes away by itself floats over the page, so the page does not jump when it comes and goes. */
+.alert[data-autodismiss] {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  z-index: 40;
+  max-width: min(560px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  background: linear-gradient(hsl(var(--success) / 0.08), hsl(var(--success) / 0.08)), hsl(var(--background));
+  box-shadow: 0 6px 20px hsl(240 10% 3.9% / 0.12);
+}
 .alert-error {
   border-color: hsl(var(--destructive) / 0.4);
   border-left-color: hsl(var(--destructive));
@@ -405,6 +551,18 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   gap: 0.5rem;
   margin-top: 1.5rem;
 }
+/* The Developer Flow confirmation: smaller card, confirming button first. */
+.dialog.dialog-compact {
+  max-width: 554px;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(9 9 11 / 0.08);
+}
+.dialog-compact .dialog-header { margin-bottom: 10px; }
+.dialog-compact .dialog-title { font-size: 15px; line-height: 1.5; letter-spacing: normal; }
+.dialog-compact [data-confirm-message] { font-size: 13px; color: hsl(var(--soft-foreground)); }
+.dialog-compact .dialog-footer { flex-direction: row-reverse; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.dialog-compact .dialog-footer .btn { font-size: 13px; padding: 0 14px; }
 
 /* ---------- stepper ----------
    Vertical at every width: a horizontal flex-wrap stepper leaves stray leading
@@ -470,9 +628,11 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .step-sublabel { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
 
 /* ---------- kpi ---------- */
+/* The cards of a row stretch to one height, so a card with a second line does not stand out. Six fit in a row
+   of the widest page. */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 1rem;
 }
 .kpi-grid > * { min-width: 0; }
@@ -486,7 +646,18 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   border-radius: var(--radius);
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
-.kpi-value { font-size: 1.875rem; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; }
+/* The value shrinks with its card, so a seven-figure token total stays inside a narrow card (160 px). */
+.kpi { container-type: inline-size; }
+a.kpi { color: inherit; }
+a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
+.kpi-value {
+  font-size: clamp(1.25rem, 16cqi, 1.875rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
 .kpi-label { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .kpi-trend { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
 
@@ -511,9 +682,8 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   padding: 1.5rem;
 }
 .chart-card [hidden] { display: none !important; }
-.timeline { display: flex; flex-direction: column; }
 .code-block {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
   background: hsl(var(--muted));
@@ -563,230 +733,243 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .def-list dt { color: hsl(var(--muted-foreground)); }
 .def-list dd { margin: 0; font-variant-numeric: tabular-nums; }
-.developer-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; margin-bottom: 1rem; }
-.developer-facts dl { margin: 0; min-width: 0; }
-.developer-facts dt { color: hsl(var(--muted-foreground)); font-size: 0.8125rem; }
-.developer-facts dd { margin: 0.25rem 0 0; overflow-wrap: anywhere; }
 
-/* ---------- Developer Flow execution ---------- */
-.developer-execution { overflow: hidden; }
-.developer-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.5rem;
-  padding: 1rem 1.5rem 0.875rem;
-  border-bottom: 1px solid hsl(var(--border));
-}
-.developer-flow-label {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.375rem 0.75rem;
+/* ---------- Developer Flow: My tasks, task summary, run ----------
+   Page-scoped so the shared components keep their look elsewhere. */
+/* The page is the container the run page's step cards measure, so the menu counts and the window does not. */
+.dev-page { display: flex; flex-direction: column; gap: 24px; container-type: inline-size; }
+.dev-page form { margin: 0; }
+.dev-title, .dev-section-title { line-height: 1.5; letter-spacing: normal; }
+.dev-title { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.dev-section-title { font-size: 16px; font-weight: 600; }
+.dev-count { color: hsl(var(--muted-foreground)); font-weight: 400; }
+.dev-link { text-decoration: underline; }
+.dev-note { font-size: 12px; color: hsl(var(--muted-foreground)); }
+.dev-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; }
+/* One weight in both states, so the tabs do not move; the selected tab has colour and an underline. */
+.dev-tabs { display: flex; gap: 16px; }
+.dev-tabs a {
+  padding-bottom: 4px;
+  border-bottom: 2px solid transparent;
   color: hsl(var(--muted-foreground));
-  font-size: 0.8125rem;
+  font-weight: 500;
 }
-.developer-task-key {
-  background: hsl(var(--secondary));
-  color: hsl(var(--secondary-foreground));
-  font-size: 0.8125rem;
-  font-weight: 700;
+.dev-tabs a:hover { color: hsl(var(--foreground)); text-decoration: none; }
+.dev-tabs a[aria-current="page"] {
+  border-bottom-color: hsl(var(--foreground));
+  color: hsl(var(--foreground));
 }
-.developer-title {
-  max-width: 52rem;
-  margin-top: 0.1875rem;
-  font-size: 1.125rem;
-  letter-spacing: -0.02em;
-}
-.developer-content { padding: 1rem 1.5rem 1.25rem; }
-.developer-content > .alert { margin-bottom: 1rem; }
-.developer-repository {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.55fr) minmax(0, 1fr);
-  gap: 0.75rem 1.5rem;
-  margin-bottom: 1rem;
-}
-.developer-repository dl { min-width: 0; }
-.developer-pr-link { text-decoration: underline; text-underline-offset: 0.15em; }
-.developer-repository dt,
-.developer-delivery-facts dt {
-  color: hsl(var(--muted-foreground));
-  font-size: 0.75rem;
-}
-.developer-repository dd,
-.developer-delivery-facts dd {
-  margin-top: 0.125rem;
-  overflow-wrap: anywhere;
-  font-size: 0.875rem;
-}
-.developer-sha { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.developer-stages {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
+
+.task-check { width: 16px; height: 16px; margin: 3px 0 0; accent-color: hsl(var(--primary)); }
+/* Model and Effort of a run form: one compact row that wraps on narrow screens. */
+.run-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.run-setting { display: flex; align-items: center; gap: 6px; font-size: 13px; color: hsl(var(--foreground)); }
+.run-setting .select { width: auto; max-width: 16rem; }
+.run-setting > span { color: hsl(var(--muted-foreground)); font-weight: 400; white-space: nowrap; }
+.run-setting-problem { font-size: 13px; color: hsl(var(--destructive)); }
+/* Effort: one radio button per level of the model, drawn as a segmented control with the select's border. */
+.effort-toggle {
+  display: inline-flex;
+  height: 30px;
+  border: 1px solid hsl(var(--input));
+  border-radius: 6px;
   overflow: hidden;
-  list-style: none;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
 }
-.developer-stages li {
-  display: grid;
-  grid-template-columns: 1.75rem minmax(0, 1fr);
-  align-items: center;
-  gap: 0.625rem;
-  min-width: 0;
-  padding: 0.75rem;
-}
-.developer-stages li + li { border-left: 1px solid hsl(var(--border)); }
-.developer-stage-marker {
+.effort-toggle label { position: relative; display: flex; }
+.effort-toggle input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.effort-toggle span {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border: 2px solid hsl(var(--border));
-  border-radius: 9999px;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.75rem;
+  padding: 0 12px;
+  border-left: 1px solid hsl(var(--input));
+  background: hsl(var(--background));
+  color: hsl(var(--soft-foreground));
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.effort-toggle label:first-child span { border-left: 0; }
+.effort-toggle input:not(:checked) + span:hover { background: hsl(var(--secondary)); }
+/* Light grey, not filled: the one filled control of a screen is its main button. */
+.effort-toggle input:checked + span {
+  background: hsl(var(--border));
+  color: hsl(var(--foreground));
   font-weight: 600;
 }
-.developer-stages li[data-state="done"] .developer-stage-marker {
-  border-color: hsl(var(--success));
-  background: hsl(var(--success));
-  color: hsl(var(--success-foreground));
-}
-.developer-stages li[data-state="current"] .developer-stage-marker {
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary));
-  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
-}
-.developer-stages li[data-state="failed"] .developer-stage-marker {
-  border-color: hsl(var(--destructive));
-  background: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground));
-}
-.developer-stage-copy { display: flex; min-width: 0; flex-direction: column; gap: 0.0625rem; }
-.developer-stage-label { overflow-wrap: anywhere; font-size: 0.8125rem; font-weight: 600; }
-.developer-stage-meta {
+.effort-toggle input:focus-visible + span { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.effort-toggle-sm span { padding: 0 10px; font-size: 12px; }
+.queue-waiting {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.75rem;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 16px;
+  border: 1px solid hsl(var(--notice-border));
+  border-radius: 8px;
+  background: hsl(var(--notice));
+  color: hsl(var(--notice-foreground));
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.queue-waiting strong { font-weight: 600; }
+.dev-list > .queue-waiting { margin-top: 12px; }
+.dev-list > .queue-waiting + .queue-waiting { margin-top: 8px; }
+.dev-list > .queue-waiting + .dev-row { margin-top: 4px; }
+/* A button that changes the state of a task after a confirmation, next to buttons that only open a page. */
+.btn-notice {
+  border-color: hsl(var(--notice-accent));
+  background: hsl(var(--background));
+  color: hsl(var(--notice-foreground));
+}
+.btn-notice:hover { background: hsl(var(--notice)); }
+
+.dev-heading { display: flex; flex-direction: column; gap: 8px; }
+.dev-breadcrumb { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.dev-breadcrumb a { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
+.dev-breadcrumb a:hover { color: hsl(var(--foreground)); }
+.dev-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+/* One space on each side of every dot, in the meta line of a page and of a row. */
+.dev-meta-dots { gap: 0; }
+.dev-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
+.usage-figures {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 0;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
-.developer-stage-meta strong { color: hsl(var(--foreground)); font-weight: 500; }
-.developer-live-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 0.75fr);
-  gap: 1rem;
-  margin-top: 1rem;
-}
-.developer-panel {
-  min-width: 0;
-  padding: 0.875rem 1rem;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--muted) / 0.22);
-}
-.developer-panel h3,
-.developer-recent h4 {
+.usage-figures dt { color: hsl(var(--muted-foreground)); }
+.usage-figures dd { margin: 0; padding-left: 12px; text-align: right; }
+.usage-figures .usage-total { padding-top: 6px; border-top: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); font-weight: 600; }
+
+/* ---------- Run page: status card, four step cards, Activity | Usage, closed disclosures (mockups 2 and 5) */
+.run-standing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  font-size: 13px;
   color: hsl(var(--muted-foreground));
-  font-size: 0.75rem;
-  font-weight: 500;
 }
-.developer-current-stage { display: block; margin-top: 0.125rem; font-size: 1rem; }
-.developer-runtime-facts {
+.run-standing a:not(.btn) { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
+/* Four separate cards: four in a row, then two by two, then one column, never three and one. */
+.run-steps {
   display: grid;
-  gap: 0.375rem;
-  margin: 0.75rem 0;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid hsl(var(--border));
-}
-.developer-runtime-facts div,
-.developer-usage-breakdown div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
-  align-items: baseline;
-  gap: 0.5rem;
-}
-.developer-runtime-facts div { grid-template-columns: max-content minmax(0, 1fr); font-size: 0.8125rem; }
-.developer-runtime-facts dt { color: hsl(var(--muted-foreground)); }
-.developer-runtime-facts dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
-.developer-recent time { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
-.developer-notice {
-  margin-top: 0.625rem;
-  color: hsl(var(--warning));
-  font-size: 0.75rem;
-}
-.developer-usage-total { display: flex; align-items: baseline; gap: 0.375rem; margin-top: 0.125rem; }
-.developer-usage-total strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
-.developer-usage-total span { color: hsl(var(--muted-foreground)); font-size: 0.75rem; }
-.developer-usage-breakdown {
-  display: grid;
-  gap: 0.375rem;
-  margin-top: 0.5rem;
-}
-.developer-usage-breakdown div { font-size: 0.8125rem; }
-.developer-usage-breakdown dt { color: hsl(var(--muted-foreground)); }
-.developer-usage-breakdown dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.developer-usage-breakdown .developer-estimated-cost { border-top: 1px solid hsl(var(--border)); padding-top: 0.5rem; margin-top: 0.125rem; }
-.developer-recent { margin-top: 1rem; }
-.developer-recent ol {
-  display: grid;
-  gap: 0.25rem;
-  max-height: 14rem;
-  overflow-y: auto;
-  margin-top: 0.375rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
-.developer-recent li {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 0.75rem;
-  overflow-wrap: anywhere;
-  font-size: 0.8125rem;
+@container (min-width: 23rem) { .run-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: 46rem) { .run-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.run-step {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
 }
-.developer-outcomes {
+.run-step-title { font-weight: 600; overflow-wrap: anywhere; }
+.run-step-state { font-size: 13px; font-variant-numeric: tabular-nums; }
+.run-step[data-state="done"] .run-step-state { color: hsl(var(--success)); }
+.run-step[data-state="current"] { border-color: hsl(var(--info) / 0.4); background: hsl(var(--info) / 0.06); }
+.run-step[data-state="current"] .run-step-state { color: hsl(var(--info)); }
+.run-step[data-state="failed"] { border-color: hsl(var(--destructive) / 0.4); }
+.run-step[data-state="failed"] .run-step-state { color: hsl(var(--destructive)); }
+.run-step[data-state="question"] { border-color: hsl(var(--warning) / 0.4); }
+.run-step[data-state="question"] .run-step-state { color: hsl(var(--warning)); }
+.run-step[data-state="pending"] { color: hsl(var(--muted-foreground)); }
+/* Activity takes the room; Usage moves under it when the window is narrow. */
+.run-columns { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px 40px; }
+.run-activity { flex: 999 1 520px; min-width: 0; }
+.run-usage { flex: 1 1 220px; min-width: 0; }
+.run-usage .usage-figures { padding-top: 10px; }
+/* Time, verb, target on one line with an ellipsis, result. A row with no verb gives its text both columns. The
+   time column grows for the UTC text a page shows without script. */
+.activity-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 0;
-  border-block: 1px solid hsl(var(--border));
+  grid-template-columns: minmax(62px, max-content) 80px minmax(0, 1fr) 100px;
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: 13px;
 }
-.developer-outcomes > div { display: flex; min-width: 0; flex-direction: column; gap: 0.125rem; padding: 0.75rem 1rem; }
-.developer-outcomes > div + div { border-left: 1px solid hsl(var(--border)); }
-.developer-outcomes span { color: hsl(var(--muted-foreground)); font-size: 0.75rem; }
-.developer-outcomes strong { overflow-wrap: anywhere; font-size: 0.875rem; }
-.developer-outcomes small { color: hsl(var(--muted-foreground)); }
-.developer-delivery-facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem 1.5rem;
-  margin-top: 0.75rem;
-}
-.developer-delivery-facts div { min-width: 0; }
-.developer-debug { margin-top: 0.75rem; }
-.developer-debug > details { border-top: 1px solid hsl(var(--border)); }
-.developer-debug summary {
-  padding: 0.625rem 0;
+.activity-row[hidden] { display: none; }
+.activity-row time { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.activity-verb:empty { display: none; }
+.activity-verb:empty + .activity-target { grid-column: 2 / 4; }
+.activity-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+code.activity-target { font-family: var(--font-mono); font-size: 12px; }
+.activity-result {
+  text-align: right;
   color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.developer-debug details[open] > summary { color: hsl(var(--foreground)); }
-.developer-debug-content { padding: 0.25rem 0 1rem; }
-.developer-debug-content > * + * { margin-top: 1rem; }
-.developer-debug-content h4 { font-size: 0.875rem; }
-.developer-pricing-evidence p { margin-top: 0.25rem; font-size: 0.8125rem; }
-.developer-artifact-links { display: flex; flex-wrap: wrap; gap: 0.375rem 0.75rem; }
-.developer-artifact-links a { font-variant-numeric: tabular-nums; }
-.developer-history { display: grid; gap: 0.375rem; padding: 0; list-style: none; }
-.developer-history li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.75rem; font-size: 0.8125rem; }
-.developer-history li[data-tone="failed"] span { color: hsl(var(--destructive)); }
-.developer-history time { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
+.activity-row[data-tone="live"] .activity-verb { font-weight: 600; }
+.activity-row[data-tone="live"] .activity-result { color: hsl(var(--info)); font-weight: 600; }
+.activity-row[data-tone="failed"] .activity-result { color: hsl(var(--destructive)); }
+/* Folds: one list of full-width rows. The title row never moves; the content opens under it, and long output
+   scrolls in its own box instead of widening the page. */
+.run-disclosures { border: 1px solid hsl(var(--border)); border-radius: 8px; }
+.fold + .fold { border-top: 1px solid hsl(var(--border)); }
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  list-style: none;
+  cursor: pointer;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { color: hsl(var(--muted-foreground)); }
+.fold > summary:hover .fold-title { text-decoration: underline; }
+.fold-title { font-weight: 600; }
+.fold-hint { flex: 1 1 0; min-width: 0; font-size: 13px; color: hsl(var(--muted-foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 2px 16px 16px 39px; }
+/* In a row the activity column grows from 520px; in a fold that basis would be its height. */
+.fold-body .run-activity { flex: none; }
+.fold-body .dev-list-head:not(:has(.dev-list-tools)) { display: none; }
+.fold-body .dev-list-head { min-height: 0; padding: 0; border: 0; justify-content: flex-end; }
+.fold-body .run-activity .dev-section-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+@media (max-width: 560px) { .fold-body { padding-left: 16px; } }
+.tech-facts {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+.tech-facts dt { color: hsl(var(--muted-foreground)); }
+.tech-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tech-facts code { font-size: 12px; }
+/* Artifact names are longer than the other labels: their column takes the longest name. */
+.artifact-list { grid-template-columns: max-content minmax(0, 1fr); }
+.artifact-links { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.run-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; min-width: 0; font-size: 13px; }
+.run-links > a { text-decoration: underline; }
+.transcript-list { display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 12px 0; list-style: none; }
+.transcript-list > li { display: grid; grid-template-columns: minmax(72px, max-content) minmax(0, 1fr); gap: 12px; }
+.transcript-list time {
+  padding-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+.transcript-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; }
+.transcript-body .code-block { margin: 0; max-height: 20rem; }
+.transcript-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.transcript-head { margin: 0; }
+.transcript-label { font-size: 12px; color: hsl(var(--muted-foreground)); }
+
+@media (max-width: 720px) {
+  .tech-facts { grid-template-columns: 1fr; gap: 4px; }
+}
 
 /* ---------- card grid ---------- */
 .card-grid {
@@ -794,7 +977,9 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem;
 }
-.card-grid .card { margin-top: 0; }
+/* The gap spaces the cards of a grid: the margin of stacked cards (.card + .card) would push every card but the
+   first one down, so the cards of one row would not start on one line or have one height. */
+.card-grid .card, .charts-grid .card { margin-top: 0; }
 
 /* version tab buttons */
 .tabs button[role="tab"] { background: transparent; border-top: 0; border-inline: 0; cursor: pointer; }
@@ -816,12 +1001,9 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .badge-row { display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: center; }
 * + .badge-row { margin-top: 0.75rem; }
 .stack { display: flex; flex-direction: column; gap: 1.5rem; }
-.details-inline { margin-top: 0.5rem; }
-.details-inline summary { cursor: pointer; font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
-.details-inline[open] summary { margin-bottom: 0.5rem; }
 
 @media (max-width: 720px) {
-  .app-shell { grid-template-columns: 1fr; }
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
   .sidebar {
     position: static;
     height: auto;
@@ -832,41 +1014,555 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   }
   .sidebar-footer { margin-top: 0; margin-left: auto; }
   .main { padding: 1.25rem; }
-  .developer-header { flex-direction: column; gap: 0.5rem; padding-inline: 1rem; }
-  .developer-content { padding-inline: 1rem; }
-  .developer-repository { grid-template-columns: 1fr; gap: 0.5rem; }
-  .developer-stages { grid-template-columns: 1fr; }
-  .developer-stages li + li { border-top: 1px solid hsl(var(--border)); border-left: 0; }
-  .developer-live-grid { grid-template-columns: 1fr; }
-  .developer-recent li,
-  .developer-history li { grid-template-columns: 1fr; gap: 0.0625rem; }
-  .developer-outcomes,
-  .developer-delivery-facts { grid-template-columns: 1fr; }
-  .developer-outcomes > div + div { border-top: 1px solid hsl(var(--border)); border-left: 0; }
-  .feedback-totals { margin-left: 0; }
-  .feedback-round-content { padding: 1rem; }
-  .feedback-toolbar .btn { white-space: normal; }
 }
 
-/* PR rounds extend the existing Developer Flow panels. */
-.feedback-content { display: grid; gap: 1.25rem; }
-.feedback-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
-.feedback-toolbar form { margin: 0; }
-.feedback-selection, .feedback-answer { display: grid; gap: 1rem; }
-.feedback-comment { display: grid; grid-template-columns: 1.2rem minmax(0, 1fr); align-items: start; gap: .8rem; padding: 1rem; border: 1px solid hsl(var(--border)); border-radius: .5rem; cursor: pointer; }
-.feedback-comment input { margin-top: .3rem; }
-.feedback-comment-meta { display: flex; flex-wrap: wrap; gap: .5rem; color: hsl(var(--muted-foreground)); font-size: .8rem; }
-.feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .6rem; }
-.feedback-rounds { display: grid; gap: 1rem; }
-.feedback-round { border: 1px solid hsl(var(--border)); border-radius: .65rem; overflow: hidden; }
-.feedback-round > summary { display: flex; flex-wrap: wrap; gap: .85rem; padding: 1rem 1.25rem; cursor: pointer; background: hsl(var(--muted) / .3); }
-.feedback-round-content { display: grid; gap: 1rem; padding: 1.25rem; }
-.feedback-selected + .feedback-selected { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid hsl(var(--border)); }
-.feedback-selected p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .4rem 0 0; }
-.feedback-sha { overflow-wrap: anywhere; font-family: monospace; font-size: .8rem; }
-.feedback-totals { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; margin-left: auto; }
-.feedback-totals > span { display: grid; gap: .15rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
-.feedback-totals strong { font-size: .9rem; color: hsl(var(--foreground)); overflow-wrap: anywhere; }
-.feedback-answer textarea { width: 100%; padding: .75rem; }
+/* PR feedback on the run page: new comments and rounds are plain rows, like My tasks. */
+.feedback-section { display: flex; flex-direction: column; gap: 24px; }
+.feedback-reason { font-size: 13px; }
+.dev-row.feedback-comment { align-items: flex-start; cursor: pointer; }
+.feedback-comment .dev-row-meta { white-space: normal; }
+.feedback-comment .task-check { margin-top: 3px; }
+.dev-row.feedback-comment .task-check { top: 0; }
+.feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-location { font-family: var(--font-mono); }
+/* Rounds: one card per round. All cards share one grid, so the amounts and the chips stand in straight columns;
+   under the head line each reply says who it comes from: the reviewer on GitHub, the coding agent, Factory. The
+   amount and chip columns are as wide as those of a row in Runs of the task page and Started tasks. */
+.feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) 88px minmax(150px, auto); column-gap: 12px; row-gap: 10px; padding-top: 12px; }
+.feedback-round {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: subgrid;
+  align-items: center;
+  padding: 12px 16px 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  overflow: hidden;
+}
+.feedback-round > .row-amount { grid-column: 2; }
+.feedback-round > .chip { grid-column: 3; justify-self: end; }
+.feedback-round-body { grid-column: 1 / -1; min-width: 0; padding-bottom: 12px; }
+.feedback-round-body > .said:first-of-type { margin-top: 12px; }
+.feedback-round-body > .said:last-child { margin-bottom: -12px; }
+.feedback-round-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.feedback-round-head strong { font-weight: 600; }
+.feedback-round-summary { white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-round-link { display: inline-flex; align-self: flex-start; }
+.said {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0 -16px;
+  padding: 12px 16px;
+  border-top: 1px solid hsl(var(--border));
+  font-size: 13px;
+}
+.said > .src { align-self: start; padding-top: 3px; }
+.said-agent { background: hsl(var(--agent-background)); }
+.said-agent .feedback-report { margin: 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
+.said-lines { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.said-quote { padding-left: 10px; border-left: 2px solid hsl(var(--strong-border)); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .said { grid-template-columns: minmax(0, 1fr); } }
+.feedback-author { font-size: 12px; color: hsl(var(--muted-foreground)); }
+.feedback-report { white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-sha { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; }
+.feedback-actions { display: flex; flex-direction: column; gap: 10px; }
+.feedback-actions form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
+.feedback-diagnostics {
+  max-height: 14rem;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
-.feedback-diagnostics { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; }
+/* ---------- Developer Flow lists: rows with thin lines, no frame, no header row ---------- */
+.dev-list { display: flex; flex-direction: column; }
+.dev-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  min-height: 41px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.dev-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; }
+a.dev-list-tools { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
+a.dev-list-tools:hover { color: hsl(var(--foreground)); }
+.dev-list-tools [data-poll-notice] { color: hsl(var(--notice-foreground)); }
+.dev-poll-notice { font-size: 13px; color: hsl(var(--notice-foreground)); }
+.add-key { display: flex; align-items: center; gap: 12px; }
+.add-key-input { width: 280px; }
+/* The right part of a row stands at the top, centred on the title line, also in rows of two or three lines. A
+   Ready to run row is the exception: its controls are 30px high, taller than the title line, so they are centred
+   on the whole row. On a narrow screen the right part moves under the title instead of squeezing it. */
+.dev-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.dev-row-main { flex: 1 1 280px; min-width: 0; }
+/* At most two lines, so a narrow screen shows the start of a long title; its title attribute has it all. */
+.dev-row-title, .dev-row-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+/* The link of a table row, and a Jira key that opens Jira, look like links before the pointer reaches them. */
+.table-link, a.key-link {
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--strong-border));
+  text-underline-offset: 3px;
+}
+.table-link:hover, a.key-link:hover { text-decoration-color: currentColor; }
+/* The title of a row that opens its task has no underline: the whole row is the target and the highlight under
+   the pointer says so. */
+.dev-row-title, .dev-row-title:hover { text-decoration: none; }
+/* My tasks: the rows of both lists have more room than the rows of other lists. */
+.task-list .dev-row { padding-top: 16px; padding-bottom: 16px; }
+.task-list .dev-row-meta { margin-top: 6px; }
+/* Started tasks: the Jira key above the title, one line of facts under it, and on the right the cost and the chip
+   with the one button of the row under them. The right part is as high as the three lines, so a button adds no
+   height and every row is equally high; all buttons have one width. */
+.task-row { flex-wrap: nowrap; align-items: stretch; }
+.task-row > .dev-row-main { flex-basis: 0; }
+.task-row .task-row-head { margin-top: 0; }
+.task-row .dev-row-title {
+  display: block;
+  margin-top: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.task-row .task-row-facts > * + * { margin-left: 16px; }
+.task-row-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* The amounts stand in one column and every chip ends at the right edge of the row. */
+.task-row-status { display: grid; grid-template-columns: 88px minmax(150px, auto); align-items: center; column-gap: 12px; }
+.task-row-status > .chip { justify-self: end; }
+.task-row-side .btn { width: 140px; padding-inline: 8px; }
+.dev-row-open .task-row-side a,
+.dev-row-open .task-row-side button { position: relative; z-index: 1; }
+/* On a narrow page the right part is one line under the text, as high as a button also when the row has none:
+   the cost and the chip on the left, the button, as wide as its words, on the right. */
+@container (max-width: 36rem) {
+  .task-row { flex-wrap: wrap; }
+  .task-row > .dev-row-main { flex-basis: 100%; }
+  .task-row-side { flex: 1 1 100%; flex-flow: row wrap; align-items: center; min-height: 30px; }
+  .task-row-status { display: flex; }
+  .task-row-status > .row-amount:empty { display: none; }
+  .task-row-side .btn { width: auto; padding-inline: 12px; }
+}
+/* A row of Ready to run selects its task when its name is clicked; a task that has not started has no page worth
+   opening. */
+.dev-row-select, .task-check { cursor: pointer; }
+/* A task under Cannot run here cannot be selected. */
+.task-check:disabled { cursor: not-allowed; opacity: 0.5; }
+/* The rows of a list that reacts to clicks stand 12px inside it, like the cells of a table, so the highlight under
+   the cursor has room around the text and never leaves the list. Their dividers keep the width of the page column. */
+.dev-list-inset .dev-row,
+.dev-list-inset .dev-list-foot,
+.dev-list-inset .dev-empty { padding-left: 12px; padding-right: 12px; }
+.dev-row:has(> .dev-row-select):hover { background: hsl(var(--secondary-hover) / 0.25); }
+/* A row of Started tasks opens its task wherever it is clicked: the title link covers the row. The Jira key, the
+   chip and the button stay above it and keep their own targets. */
+.dev-row-open { position: relative; cursor: pointer; }
+.dev-row-open:hover { background: hsl(var(--secondary-hover) / 0.4); }
+.dev-row-open .dev-row-title::after,
+.dev-row-open .dev-row-link::after { content: ""; position: absolute; inset: 0; }
+/* The link of an attempt row: its text looks like the row's plain title, the whole row is the target. */
+.dev-row-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--strong-border));
+  text-underline-offset: 3px;
+}
+.dev-row-open:hover .dev-row-link { text-decoration-color: currentColor; }
+/* The keyboard focus ring goes around the row, since the row is the target. */
+.dev-row-link:focus-visible, .dev-row-open .dev-row-title:focus-visible { outline: none; }
+.dev-row-open:has(.dev-row-link:focus-visible),
+.dev-row-open:has(.dev-row-title:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.dev-row-open .dev-row-meta a,
+.dev-row-open .row-cluster a { position: relative; z-index: 1; }
+/* One line of inline parts that ends with an ellipsis when the row is narrow; its title has the whole line. The
+   templates write the parts without spaces between them, so the margins alone space them. */
+.dev-row-meta {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.dev-row-meta > * + * { margin-left: 10px; }
+.dev-row-meta-dots > * + * { margin-left: 0; }
+.dev-row-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
+.dev-row-meta a:focus-visible { outline-offset: -2px; }
+.dev-row-action { display: flex; justify-content: flex-end; }
+/* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
+.dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
+/* The right part of a Ready to run or Cannot run here row on My tasks, at the right edge of the row. */
+.row-cluster {
+  flex: none;
+  display: grid;
+  grid-template-columns: 88px 150px minmax(96px, auto);
+  align-items: center;
+  align-content: center;
+  height: 21px;
+  column-gap: 12px;
+  margin-left: auto;
+}
+/* Ready to run: the effort choice ends at the edge of Run in every row. Only a task added by key has Remove from
+   list, before the effort choice, so it takes no column in the other rows. */
+.row-cluster-ready { display: flex; height: auto; align-self: center; }
+/* Without a model to choose (Pi, or no model can run now) a row may have nothing on its right; the empty box would
+   take a line of its own on a narrow screen. */
+.row-cluster-ready:not(:has(> *)) { display: none; }
+/* Remove from list and five effort levels need about 750px next to the title. Below 50rem every Ready to run row
+   puts its right part under the title, so the row with Remove never moves down on its own. */
+@container (max-width: 50rem) {
+  .row-cluster-ready { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+}
+/* On a phone the page is never wider than the screen: Add by key takes a full line with Scan Jira under it. */
+@container (max-width: 28rem) {
+  .add-key { flex: 1 1 100%; }
+  .add-key-input { flex: 1 1 0; width: auto; min-width: 0; }
+}
+.row-amount { justify-self: end; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Words in place of a figure ("cost unknown") are a note, so they are as quiet as the other notes. */
+.row-amount-note { color: hsl(var(--muted-foreground)); }
+.key-link {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.dev-list-foot { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding-top: 12px; }
+.dev-list-foot .run-settings { margin-left: auto; }
+.dev-list-note { flex-basis: 100%; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.dev-empty { padding: 12px 0; font-size: 13px; color: hsl(var(--muted-foreground)); }
+/* Dashboard: one line with what the Developer Flow spent, between the tiles and the charts. */
+.dash-developer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin-top: 1.5rem;
+  padding: 12px 0;
+  border-top: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+.dash-developer-spent {
+  margin-right: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground));
+}
+.dash-developer .btn { margin-left: auto; }
+/* Statistics tab: the figures of each part, the period at the right of the first row, and one bar of where the
+   tasks stand. The figures keep the look the Dashboard spending had. */
+.spend-figures { display: flex; flex-wrap: wrap; gap: 12px 40px; padding: 14px 0 10px; }
+.spend-figure { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.spend-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+.spend-label { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.stat-period { display: flex; justify-content: flex-end; }
+.period-choice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid hsl(var(--input));
+  border-radius: 6px;
+  overflow: hidden;
+}
+.period-choice a {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-left: 1px solid hsl(var(--input));
+  color: hsl(var(--soft-foreground));
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.period-choice a:first-child { border-left: 0; }
+.period-choice a:hover { background: hsl(var(--secondary)); }
+/* Light grey, not filled, as the Effort choice: the one filled control of a screen is its main button. */
+.period-choice a[aria-current="page"] { background: hsl(var(--border)); color: hsl(var(--foreground)); font-weight: 600; }
+.period-choice a:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.stat-bar { display: flex; gap: 2px; height: 12px; margin: 8px 0; overflow: hidden; border-radius: 3px; }
+.stat-bar > span { flex-basis: 0; min-width: 3px; background: hsl(var(--stat)); }
+.stat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--soft-foreground));
+}
+.stat-key { display: inline-flex; align-items: center; gap: 6px; }
+.stat-key::before { content: ""; width: 10px; height: 10px; border-radius: 2px; background: hsl(var(--stat)); }
+.stat-key strong { font-weight: 600; color: hsl(var(--foreground)); }
+/* The two greens and the grey differ in lightness too, so they stay apart without color. */
+.stat-merged { --stat: var(--success); }
+.stat-pull-request-open { --stat: var(--success) / 0.4; }
+.stat-closed { --stat: var(--muted-foreground) / 0.45; }
+.stat-in-progress { --stat: var(--info); }
+.stat-needs-inspection { --stat: var(--warning); }
+.stat-no-pull-request { --stat: var(--destructive); }
+.stat-table { overflow-x: auto; }
+.stat-table table { font-size: 13px; font-variant-numeric: tabular-nums; }
+.stat-table th, .stat-table td { padding: 10px 16px 10px 0; }
+.stat-table th:last-child, .stat-table td:last-child { padding-right: 0; }
+.stat-table thead th { font-size: 12px; }
+.stat-table .num { text-align: right; white-space: nowrap; }
+.stat-table tbody tr:hover { background: none; }
+/* Task page, Runs: one table with its labels once in the header. A run is one tbody of two rows, its facts and
+   how it ended: the link of the run covers the tbody and its rows highlight together; the pull request chip stays
+   above the link. The Status column has one width, so every cost and the Total cost stand at the same place. */
+.runs-wrap { overflow-x: auto; }
+.runs-table { --runs-status-width: 150px; --runs-gap: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.runs-table th, .runs-table td { padding: 12px; white-space: nowrap; }
+.runs-table thead th { padding-top: 10px; padding-bottom: 8px; font-size: 12px; }
+.runs-table .num { text-align: right; }
+.runs-table .runs-status { width: var(--runs-status-width); min-width: var(--runs-status-width); text-align: right; }
+.runs-name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.runs-name .attempt-title { font-size: 14px; }
+.runs-kind { margin-left: 8px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.runs-table tbody tr:hover { background: none; }
+.runs-main > td { padding-bottom: 2px; }
+.runs-result > td { padding-top: 0; border-top: 0; white-space: normal; color: hsl(var(--soft-foreground)); }
+.runs-table tfoot td { border-top: 1px solid hsl(var(--strong-border)); font-weight: 600; }
+.dev-row-open .runs-status a { position: relative; z-index: 1; }
+.runs-tokens { margin: 12px 12px 0; }
+.runs-tokens-wrap { overflow-x: auto; }
+.runs-tokens table { font-size: 13px; font-variant-numeric: tabular-nums; }
+.runs-tokens th, .runs-tokens td { padding: 6px 0 6px 24px; white-space: nowrap; }
+.runs-tokens th:first-child, .runs-tokens td:first-child { padding-left: 0; }
+.runs-tokens thead th { font-size: 12px; }
+.runs-tokens .num { text-align: right; }
+.runs-tokens tbody tr:hover { background: none; }
+.runs-tokens-total td { font-weight: 600; }
+/* On a narrow page the header goes, for the eye only, and the facts of a run take two lines: the run, its cost and
+   its chip, then its model, start and time. The Total row keeps its cost under the costs. */
+@container (max-width: 40rem) {
+  .runs-table, .runs-table tbody, .runs-table tfoot { display: block; }
+  .runs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .runs-table tr { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--runs-gap); }
+  .runs-table td { padding: 0; border-top: 0; }
+  .runs-table .runs-status { flex: none; }
+  .runs-table tbody .runs-main { row-gap: 4px; padding: 12px 12px 0; border-top: 1px solid hsl(var(--border)); }
+  .runs-main > .runs-name { order: 1; flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
+  .runs-main > .runs-cost { order: 2; }
+  .runs-main > .runs-status { order: 3; }
+  .runs-main::after { content: ""; order: 4; flex-basis: 100%; }
+  .runs-main > .runs-model, .runs-main > .runs-started, .runs-main > .runs-time {
+    order: 5;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: hsl(var(--muted-foreground));
+  }
+  .runs-main > .runs-model { color: hsl(var(--foreground)); font-weight: 500; }
+  .runs-main > .runs-started::before, .runs-main > .runs-time::before { content: "·"; margin-right: 10px; }
+  .runs-table .runs-result { padding: 4px 12px 12px; }
+  /* The Total row has no chip: its cost keeps the place of the costs above, on a line of its own when the words
+     before it need the room. */
+  .runs-table tfoot tr { row-gap: 4px; padding: 12px; border-top: 1px solid hsl(var(--strong-border)); }
+  .runs-table tfoot td { border-top: 0; }
+  .runs-table tfoot .runs-blank, .runs-table tfoot .runs-status { display: none; }
+  .runs-table tfoot .runs-name { flex: none; width: auto; max-width: none; }
+  .runs-table tfoot .runs-time { font-weight: 400; color: hsl(var(--muted-foreground)); }
+  .runs-table tfoot .runs-time::before { content: "·"; margin-right: 10px; }
+  .runs-table tfoot .runs-cost { margin-left: auto; margin-right: calc(var(--runs-status-width) + var(--runs-gap)); }
+}
+/* Definition: one numbered list of steps, each with its kind and what it reads and writes. */
+.dev-page > .page-header { margin-bottom: 0; }
+.def-steps { margin: 0; padding: 0; list-style: none; }
+.def-step-title { font-weight: 600; overflow-wrap: anywhere; }
+.def-step-kind { margin-top: 3px; font-size: 12px; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+.def-step-data, .def-step-note { margin-top: 6px; font-size: 13px; color: hsl(var(--soft-foreground)); overflow-wrap: anywhere; }
+.def-retries { padding-top: 12px; }
+/* Configuration: the models, where runs go, the limits, the task source, and the check of one task. */
+.config-note, .config-facts { padding-top: 12px; }
+/* Name, value, and the variable that sets it: three columns; on a narrow page the variable goes under the value. */
+.config-facts { grid-template-columns: 140px minmax(0, 1fr) 270px; }
+.config-variable { color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+@container (max-width: 47rem) {
+  .config-facts { grid-template-columns: 140px minmax(0, 1fr); }
+  .config-variable { grid-column: 2; }
+}
+.config-subtitle { padding: 16px 0 4px; font-size: 14px; font-weight: 600; border-bottom: 1px solid hsl(var(--border)); }
+.config-name { font-weight: 600; overflow-wrap: anywhere; }
+.config-detail { margin-top: 3px; font-size: 12px; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+.config-fix, .config-warning { margin-top: 6px; font-size: 13px; overflow-wrap: anywhere; }
+.config-fix { color: hsl(var(--soft-foreground)); }
+.config-warning { color: hsl(var(--notice-foreground)); }
+.config-endpoint { padding-top: 6px; }
+.config-table { overflow-x: auto; }
+.config-table th:first-child, .config-table td:first-child { padding-left: 0; }
+.config-table code { font-size: 12px; overflow-wrap: anywhere; }
+.config-verdict { padding-top: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.config-check > .chip { flex: none; min-width: 104px; }
+.config-check > .dev-row-main { font-size: 13px; overflow-wrap: anywhere; }
+.dev-problem { padding-top: 8px; font-size: 13px; color: hsl(var(--destructive)); }
+/* In progress: one 30 px line while a run works, then its Open run button. */
+.progress-strip { display: flex; align-items: center; gap: 12px; }
+.progress-strip-line {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid hsl(var(--info) / 0.4);
+  border-radius: 6px;
+  background: hsl(var(--info) / 0.08);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.progress-strip-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: hsl(var(--info)); }
+.progress-strip-state::before { content: ""; width: 7px; height: 7px; border-radius: 9999px; background: currentColor; }
+.progress-strip-title { overflow: hidden; text-overflow: ellipsis; }
+.progress-strip-run { margin-left: auto; color: hsl(var(--soft-foreground)); }
+
+/* ---------- Task page: one status card, then plain sections with a heading and a thin line ---------- */
+/* Chip and headline with the lines under it | amount and buttons. The chip stays on the headline line and long
+   text wraps under the headline, not under the chip. The side drops under the text when the text would get less
+   than 24rem, whatever the width of the window or the menu. */
+.status-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 14px 16px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+}
+/* The chip has a column of its own, as wide as the chip column of a row, so the text starts at the same place in
+   every state. Chip, source tag and the buttons of the side are centred on one line. */
+.status-card-main {
+  flex: 1 1 24rem;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.status-card-main > .chip { justify-self: start; margin-top: 3px; }
+.status-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 7px; }
+.status-card-headline { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.status-card-reason { font-size: 14px; overflow-wrap: anywhere; }
+.status-card-label { margin-right: 6px; color: hsl(var(--muted-foreground)); }
+/* The side may shrink to the width of the card, so on a phone its amount and buttons wrap inside the card. */
+.status-card-side { flex: 0 1 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; margin-left: auto; }
+.status-card-money { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.status-card-note { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.status-card-reasons { margin-top: 4px; font-size: 13px; }
+.status-card-reasons ul { padding-left: 20px; }
+.status-card[data-turn="YOURS"],
+.your-part {
+  border: 1px solid hsl(var(--notice-border));
+  border-left: 4px solid hsl(var(--notice-accent));
+  border-radius: 8px;
+}
+.status-card[data-turn="YOURS"] { background: hsl(var(--notice)); padding-left: 13px; }
+.your-part { padding: 14px 16px 14px 13px; }
+.status-card-note.status-card-problem { color: hsl(var(--notice-foreground)); overflow-wrap: anywhere; }
+/* Source tag: says who a block comes from. Jira and GitHub are outside Factory, the coding agent writes its own
+   text, and "you" marks what waits for the developer. A tag without a tone is Factory itself. */
+.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+}
+.src::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
+.src-jira, .src-github { color: hsl(var(--info)); }
+.src-agent { color: hsl(var(--agent)); }
+.src-you { color: hsl(var(--notice-accent)); }
+/* On a phone the text column of the status card is narrower than "Nothing needed from you", so that tag wraps
+   inside the card instead of passing its edge, with its square on the first line. */
+.status-card-body > .src { white-space: normal; align-items: baseline; }
+.dev-section-title > .src { margin-left: 8px; vertical-align: middle; }
+.dev-row-meta > .src { vertical-align: baseline; }
+.your-part > .dev-section-head { border-bottom: 0; padding-bottom: 0; }
+/* Steps has the heading of a list: a title over a line. */
+.run-part { display: flex; flex-direction: column; gap: 12px; }
+.run-part-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+/* PR feedback holds New PR comments and Rounds, so its heading is one step larger than theirs and has no line. */
+.feedback-section > .dev-section-head { padding-bottom: 0; border-bottom: 0; font-size: 18px; }
+.dev-section { display: flex; flex-direction: column; gap: 14px; }
+.dev-section-head {
+  padding-bottom: 10px;
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.dev-form { display: flex; flex-direction: column; gap: 14px; }
+.dev-field { display: flex; flex-direction: column; gap: 6px; }
+.dev-field > span,
+.dev-field > label { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.dev-form-note { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.answer-question { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.answer-evidence { font-size: 13px; color: hsl(var(--soft-foreground)); overflow-wrap: anywhere; }
+.answer-options { display: flex; flex-direction: column; }
+.answer-options label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 0;
+  border-top: 1px solid hsl(var(--border));
+  cursor: pointer;
+}
+.answer-options label:last-child { border-bottom: 1px solid hsl(var(--border)); }
+.answer-options input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: hsl(var(--primary)); }
+.attempt-title { font-weight: 600; }
+

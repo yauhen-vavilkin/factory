@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.hitl.HitlDecision;
@@ -24,18 +25,12 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/hitl/reviews")
+@RequiredArgsConstructor
 public class HitlReviewController {
 
     private final HitlReviewRepository reviews;
     private final HitlDecisionService decisionService;
     private final JsonMapper jsonMapper;
-
-    public HitlReviewController(HitlReviewRepository reviews, HitlDecisionService decisionService,
-                                JsonMapper jsonMapper) {
-        this.reviews = reviews;
-        this.decisionService = decisionService;
-        this.jsonMapper = jsonMapper;
-    }
 
     public record ReviewSummary(UUID id, UUID executionId, String gateId, HitlReviewStatus status,
                                 String title, Instant createdAt) {
